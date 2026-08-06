@@ -13,7 +13,7 @@ models:
     priority: 10
 
   # Logical Gemini family — cascade tries models in order before outer fallback.
-  # gemini-3.* IDs may be speculative/preview; 404 → permanent cooldown for that ID.
+  # gemini-2.0-* shut down (Jun 2026). 404 → permanent cooldown for that ID.
   # Optional GEMINI_MODEL env prepends a preferred head of the cascade.
   - name: gemini
     provider: gemini
@@ -21,11 +21,10 @@ models:
     auth_env_var: GOOGLE_API_KEY
     cascade:
       - gemini-3.6-flash
+      - gemini-3.5-flash
       - gemini-3-flash-preview
       - gemini-2.5-flash
       - gemini-2.5-flash-lite
-      - gemini-2.0-flash
-      - gemini-2.0-flash-lite
     limits:
       rpd: 1500
       rpm: 15
@@ -35,7 +34,8 @@ models:
     capabilities: [chat]
     priority: 20
 
-  - name: meta-llama/llama-3.3-70b-instruct:free
+  # Free Models Router — picks any live :free model (avoids deprecated fixed slugs).
+  - name: openrouter/free
     provider: openrouter
     endpoint: https://openrouter.ai/api/v1/chat/completions
     auth_env_var: OPENROUTER_API_KEY

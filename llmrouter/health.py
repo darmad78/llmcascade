@@ -128,7 +128,7 @@ class HealthCache:
                 provider=model.provider,
                 health=status.state,
                 latency_ms=status.latency_ms,
-                message=status.message,
+                probe_message=status.message,
             )
             out[model.name] = status.to_dict()
         return out

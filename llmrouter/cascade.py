@@ -25,14 +25,13 @@ PERMANENT_COOLDOWN = timedelta(days=365)
 WAIT_CHUNK_S = 15.0
 MIN_TEXT_LEN = 1
 
-# Speculative / preview IDs may 404 → permanent cooldown; free-tier availability varies.
+# gemini-2.0-* shut down Jun 2026. Unknown IDs 404 → permanent cooldown.
 DEFAULT_GEMINI_CASCADE: tuple[str, ...] = (
-    "gemini-3.6-flash",  # speculative / preview — may be permanent-cooled if 404
-    "gemini-3-flash-preview",  # speculative / preview
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
 )
 
 SendFn = Callable[[str, str], Awaitable[LLMResponse]]  # (model_id, prompt) -> response
