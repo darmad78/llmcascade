@@ -117,6 +117,45 @@ async def test_gemini_success():
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_gemini_skips_thought_parts():
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    respx.post(url__startswith=url).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "thinking...", "thought": True},
+                                {"text": "answer"},
+                            ]
+                        },
+                        "finishReason": "STOP",
+                    }
+                ],
+                "usageMetadata": {"totalTokenCount": 9},
+            },
+        )
+    )
+    model = ModelConfig(
+        name="gemini",
+        provider="gemini",
+        endpoint="https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        auth_env_var="GOOGLE_API_KEY",
+        limits=Limits(rpd=10, rpm=10, rps=10, tpm=1000, max_context=4096),
+        capabilities=["chat"],
+        priority=1,
+        cascade=["gemini-2.5-flash"],
+    )
+    async with httpx.AsyncClient() as client:
+        adapter = GeminiAdapter(model, "secret", client=client)
+        resp = await adapter.send_model("gemini-2.5-flash", "hi")
+    assert resp.text == "answer"
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_gemini_5xx_retryable():
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     respx.post(url__startswith=url).mock(return_value=httpx.Response(503, text="down"))

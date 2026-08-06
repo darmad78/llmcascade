@@ -31,6 +31,8 @@ class ModelConfig(BaseModel):
     limits: Limits
     capabilities: list[str] = Field(default_factory=list)
     priority: int = 100
+    # Ordered Gemini model IDs under one logical entry (provider=gemini).
+    cascade: list[str] = Field(default_factory=list)
 
 
 def default_models_path() -> Path:

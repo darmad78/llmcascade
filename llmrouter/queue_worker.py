@@ -8,6 +8,8 @@ import httpx
 
 from llmrouter.adapters import get_adapter
 from llmrouter.adapters.base import LLMResponse
+from llmrouter.adapters.gemini_adapter import GeminiAdapter
+from llmrouter.cascade import GeminiCascadeManager, cascade_manager_from_registry
 from llmrouter.event_log import events
 from llmrouter.exceptions import QueueFullError
 from llmrouter.health import health_cache
@@ -35,9 +37,15 @@ class RouterClient:
         workers: int = 4,
         max_queue: int = 100,
         rate_limiter: RateLimiter | None = None,
+        gemini_cascade: GeminiCascadeManager | None = None,
     ) -> None:
         self.registry = registry if registry is not None else load_registry(models_path)
-        self.rate_limiter = rate_limiter or RateLimiter(self.registry)
+        self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
+        self.rate_limiter = rate_limiter or RateLimiter(
+            self.registry, gemini_cascade=self.gemini_cascade
+        )
+        if rate_limiter is not None and self.gemini_cascade is not None:
+            self.rate_limiter.gemini_cascade = self.gemini_cascade
         self.selector = ModelSelector(self.registry, self.rate_limiter, strategy=strategy)
         self._workers_n = workers
         self._queue: asyncio.Queue[_Job | None] = asyncio.Queue(maxsize=max_queue)
@@ -68,7 +76,19 @@ class RouterClient:
         self._started = False
 
     async def _execute(self, model: ModelConfig, prompt: str, **params: Any) -> LLMResponse:
+        wait_for_gemini = bool(params.pop("wait_for_gemini", False))
         adapter = get_adapter(model, client=self._client)
+        if (
+            model.provider == "gemini"
+            and self.gemini_cascade is not None
+            and isinstance(adapter, GeminiAdapter)
+        ):
+            async def send(model_id: str, p: str) -> LLMResponse:
+                return await adapter.send_model(model_id, p, **params)
+
+            return await self.gemini_cascade.run(
+                send, prompt, wait_for_gemini=wait_for_gemini
+            )
         return await adapter.send(prompt, **params)
 
     async def _worker(self) -> None:
@@ -96,6 +116,9 @@ class RouterClient:
                 self._queue.task_done()
 
     async def submit(self, prompt: str, capability: str = "chat", **params: Any) -> LLMResponse:
+        """Submit a completion. Additive: wait_for_gemini=False (default) falls through
+        to other free providers when the Gemini cascade is fully cooling.
+        """
         if not self._started:
             await self.start()
         loop = asyncio.get_running_loop()
@@ -108,8 +131,18 @@ class RouterClient:
             raise QueueFullError("request queue is full") from exc
         return await fut
 
-    async def status(self) -> dict[str, dict[str, int]]:
-        return {m.name: await self.rate_limiter.remaining_budget(m.name) for m in self.registry}
+    async def status(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            m.name: await self.rate_limiter.remaining_budget(m.name) for m in self.registry
+        }
+        if self.gemini_cascade is not None:
+            out["gemini_cascade"] = await self.gemini_cascade.status()
+        return out
+
+    async def gemini_status(self) -> dict[str, Any]:
+        if self.gemini_cascade is None:
+            return {"logical": None, "models": [], "available": [], "available_at": {}, "family_ready": False}
+        return await self.gemini_cascade.status()
 
     async def metrics_snapshot(self) -> dict[str, Any]:
         snap = metrics.snapshot()
@@ -125,21 +158,23 @@ class RouterClient:
         health = await self.health_snapshot(force=force_health)
         models = []
         for m in self.registry:
-            models.append(
-                {
-                    "name": m.name,
-                    "provider": m.provider,
-                    "priority": m.priority,
-                    "capabilities": m.capabilities,
-                    "limits": m.limits.model_dump(),
-                    "budget": budgets.get(m.name, {}),
-                    "requests_total": snap["requests_total"].get(m.name, 0),
-                    "failures_total": snap["failures_total"].get(m.name, 0),
-                    "health": health.get(m.name, {"state": "unknown"}),
-                }
-            )
+            entry: dict[str, Any] = {
+                "name": m.name,
+                "provider": m.provider,
+                "priority": m.priority,
+                "capabilities": m.capabilities,
+                "limits": m.limits.model_dump(),
+                "budget": budgets.get(m.name, {}),
+                "requests_total": snap["requests_total"].get(m.name, 0),
+                "failures_total": snap["failures_total"].get(m.name, 0),
+                "health": health.get(m.name, {"state": "unknown"}),
+            }
+            if m.cascade:
+                entry["cascade"] = list(m.cascade)
+            models.append(entry)
         return {
             "models": models,
+            "gemini_cascade": budgets.get("gemini_cascade"),
             "events": events.events(),
             "errors": events.errors(),
         }

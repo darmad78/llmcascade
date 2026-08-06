@@ -24,14 +24,22 @@ class HealthStatus:
         return asdict(self)
 
 
+def _gemini_probe_url(model: ModelConfig, api_key: str) -> str:
+    from llmrouter.cascade import gemini_endpoint
+
+    model_id = model.cascade[0] if model.cascade else model.name
+    url = gemini_endpoint(model.endpoint, model_id)
+    qs = urlencode({"key": api_key})
+    return f"{url}?{qs}"
+
+
 def _auth_headers(model: ModelConfig, api_key: str) -> tuple[str, dict[str, str]]:
     """Return (url, headers) for a non-completion probe."""
     url = model.endpoint
     headers: dict[str, str] = {}
 
     if model.provider == "gemini":
-        qs = urlencode({"key": api_key})
-        return f"{url}?{qs}", headers
+        return _gemini_probe_url(model, api_key), headers
 
     if model.provider == "cloudflare":
         account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -39,7 +47,6 @@ def _auth_headers(model: ModelConfig, api_key: str) -> tuple[str, dict[str, str]
 
     headers["Authorization"] = f"Bearer {api_key}"
     return url, headers
-
 
 def _classify(status_code: int | None, exc: Exception | None) -> tuple[str, str]:
     if exc is not None:

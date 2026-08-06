@@ -4,7 +4,7 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from typing import Deque
+from typing import Any, Deque
 
 from llmrouter.registry import ModelConfig
 
@@ -40,10 +40,17 @@ class RateLimiter:
 
     WINDOWS = {"rps": 1.0, "rpm": 60.0, "rpd": 86400.0, "tpm": 60.0}
 
-    def __init__(self, models: list[ModelConfig], store: BudgetStore | None = None) -> None:
+    def __init__(
+        self,
+        models: list[ModelConfig],
+        store: BudgetStore | None = None,
+        *,
+        gemini_cascade: Any | None = None,
+    ) -> None:
         self._models = {m.name: m for m in models}
         self._store = store or InMemoryBudgetStore()
         self._locks: dict[str, asyncio.Lock] = {m.name: asyncio.Lock() for m in models}
+        self.gemini_cascade = gemini_cascade
 
     def _lock(self, model_name: str) -> asyncio.Lock:
         if model_name not in self._locks:
@@ -59,6 +66,15 @@ class RateLimiter:
     async def can_proceed(self, model_name: str, tokens_estimate: int) -> bool:
         model = self._models.get(model_name)
         if model is None:
+            return False
+        # Gemini family: ineligible while every cascade member is cooling.
+        cascade = self.gemini_cascade
+        if (
+            cascade is not None
+            and model.provider == "gemini"
+            and getattr(cascade, "logical_name", None) == model_name
+            and not await cascade.any_available()
+        ):
             return False
         async with self._lock(model_name):
             now = time.monotonic()
