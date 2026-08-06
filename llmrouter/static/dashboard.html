@@ -33,11 +33,17 @@
     }
     header {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
       gap: 1rem;
       padding: 1.25rem 1.5rem 0.75rem;
       border-bottom: 1px solid var(--line);
+    }
+    .header-left {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.85rem 1.25rem;
     }
     h1 {
       margin: 0;
@@ -46,6 +52,24 @@
       letter-spacing: -0.02em;
     }
     h1 span { color: var(--muted); font-weight: 500; }
+    .page-nav { display: flex; gap: 0.4rem; }
+    .nav-btn {
+      display: inline-block;
+      padding: 0.28rem 0.7rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+    .nav-btn:hover { color: var(--text); border-color: var(--muted); }
+    .nav-btn.is-active {
+      color: var(--text);
+      border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+    }
     .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
     main {
       display: grid;
@@ -300,7 +324,13 @@
 </head>
 <body>
   <header>
-    <h1>llmrouter <span>status</span></h1>
+    <div class="header-left">
+      <h1>llmrouter <span>status</span></h1>
+      <nav class="page-nav" aria-label="Pages">
+        <a class="nav-btn is-active" href="/dashboard">Status</a>
+        <a class="nav-btn" href="/stats">Stats</a>
+      </nav>
+    </div>
     <div class="meta" id="meta">loading…</div>
   </header>
   <div class="shell">

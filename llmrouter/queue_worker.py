@@ -17,6 +17,7 @@ from llmrouter.metrics import metrics
 from llmrouter.rate_limiter import RateLimiter
 from llmrouter.registry import ModelConfig, load_registry
 from llmrouter.selector import ModelSelector, Strategy
+from llmrouter.stats_store import NullStatsStore, StatsStore
 
 
 @dataclass
@@ -38,6 +39,7 @@ class RouterClient:
         max_queue: int = 100,
         rate_limiter: RateLimiter | None = None,
         gemini_cascade: GeminiCascadeManager | None = None,
+        stats: StatsStore | NullStatsStore | None = None,
     ) -> None:
         self.registry = registry if registry is not None else load_registry(models_path)
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
@@ -46,7 +48,10 @@ class RouterClient:
         )
         if rate_limiter is not None and self.gemini_cascade is not None:
             self.rate_limiter.gemini_cascade = self.gemini_cascade
-        self.selector = ModelSelector(self.registry, self.rate_limiter, strategy=strategy)
+        self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
+        self.selector = ModelSelector(
+            self.registry, self.rate_limiter, strategy=strategy, stats=self.stats
+        )
         self._workers_n = workers
         self._max_queue = max_queue
         self._queue: asyncio.Queue[_Job | None] = asyncio.Queue(maxsize=max_queue)
@@ -149,6 +154,9 @@ class RouterClient:
         snap = metrics.snapshot()
         budgets = await self.status()
         return {**snap, "current_budget": budgets}
+
+    async def stats_snapshot(self, range_key: str = "7d") -> dict[str, Any]:
+        return await self.stats.snapshot(range_key)
 
     async def health_snapshot(self, *, force: bool = False) -> dict[str, dict[str, Any]]:
         return await health_cache.statuses(self._client, self.registry, force=force)

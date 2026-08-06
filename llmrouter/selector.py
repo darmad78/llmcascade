@@ -10,6 +10,7 @@ from llmrouter.event_log import events
 from llmrouter.metrics import log, metrics
 from llmrouter.rate_limiter import RateLimiter
 from llmrouter.registry import ModelConfig
+from llmrouter.stats_store import NullStatsStore, StatsStore
 from llmrouter.tokens import estimate_tokens
 
 Strategy = Literal["round_robin", "least_used", "priority_first"]
@@ -24,10 +25,12 @@ class ModelSelector:
         registry: list[ModelConfig],
         rate_limiter: RateLimiter,
         strategy: Strategy = "round_robin",
+        stats: StatsStore | NullStatsStore | None = None,
     ) -> None:
         self.registry = list(registry)
         self.rate_limiter = rate_limiter
         self.strategy = strategy
+        self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
         self._rr_index = 0
 
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
@@ -112,6 +115,13 @@ class ModelSelector:
                 used = resp.tokens_used or tokens_est
                 await self.rate_limiter.record_usage(model.name, used)
                 metrics.record_success(model.name)
+                await self.stats.record(
+                    model=model.name,
+                    provider=model.provider,
+                    success=True,
+                    latency_ms=resp.latency_ms,
+                    tokens_used=used,
+                )
                 log.info(
                     "request ok",
                     extra={
@@ -137,6 +147,13 @@ class ModelSelector:
             except ProviderError as exc:
                 last_err = exc
                 metrics.record_failure(model.name)
+                await self.stats.record(
+                    model=model.name,
+                    provider=model.provider,
+                    success=False,
+                    latency_ms=0,
+                    tokens_used=0,
+                )
                 log.info(
                     "request fail",
                     extra={

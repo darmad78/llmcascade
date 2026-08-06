@@ -4,6 +4,8 @@ Optional FastAPI HTTP layer for llmrouter.
 v1 budgets are process-local — run a single uvicorn worker only:
   uvicorn llmrouter.api:app --host 0.0.0.0 --port 12000
 Do not use --workers > 1 until a shared BudgetStore (e.g. Redis) is implemented.
+
+Historical stats require MONGODB_URI (optional LLMROUTER_MONGO_DB, default llmrouter).
 """
 
 from __future__ import annotations
@@ -17,16 +19,20 @@ from pydantic import BaseModel, Field
 from llmrouter.adapters.base import LLMResponse
 from llmrouter.event_log import events
 from llmrouter.queue_worker import RouterClient
+from llmrouter.stats_store import NullStatsStore, StatsStore
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Query
     from fastapi.responses import FileResponse
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Install llmrouter[api] to use the HTTP layer") from exc
 
 
 _client: RouterClient | None = None
-_DASHBOARD_HTML = Path(__file__).resolve().parent / "static" / "dashboard.html"
+_stats: StatsStore | NullStatsStore | None = None
+_STATIC = Path(__file__).resolve().parent / "static"
+_DASHBOARD_HTML = _STATIC / "dashboard.html"
+_STATS_HTML = _STATIC / "stats.html"
 
 
 class CompleteRequest(BaseModel):
@@ -37,15 +43,29 @@ class CompleteRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _client
+    global _client, _stats
     models_path = Path(__file__).resolve().parent / "models.yaml"
-    _client = RouterClient(models_path=str(models_path))
+    try:
+        _stats = await StatsStore.connect()
+    except Exception as exc:  # noqa: BLE001
+        events.record(f"mongodb stats unavailable: {exc}", level="error")
+        _stats = NullStatsStore()
+    if _stats is None:
+        _stats = NullStatsStore()
+    _client = RouterClient(models_path=str(models_path), stats=_stats)
     await _client.start()
-    events.record("router started", level="info", models=len(_client.registry))
+    events.record(
+        "router started",
+        level="info",
+        models=len(_client.registry),
+        stats_configured=_stats.configured,
+    )
     yield
     await _client.shutdown(graceful=True)
+    await _stats.close()
     events.record("router stopped", level="info")
     _client = None
+    _stats = None
 
 
 app = FastAPI(title="llmrouter", version="0.1.0", lifespan=lifespan)
@@ -82,6 +102,11 @@ async def metrics_endpoint() -> dict[str, Any]:
     return await _require_client().metrics_snapshot()
 
 
+@app.get("/v1/stats")
+async def stats_endpoint(range: str = Query(default="7d", pattern="^(24h|1d|7d|30d)$")) -> dict[str, Any]:
+    return await _require_client().stats_snapshot(range)
+
+
 @app.get("/v1/health")
 async def health_endpoint(force: bool = False) -> dict[str, dict[str, Any]]:
     return await _require_client().health_snapshot(force=force)
@@ -107,3 +132,10 @@ async def dashboard_page() -> FileResponse:
     if not _DASHBOARD_HTML.is_file():
         raise HTTPException(status_code=404, detail="dashboard.html missing")
     return FileResponse(_DASHBOARD_HTML, media_type="text/html")
+
+
+@app.get("/stats")
+async def stats_page() -> FileResponse:
+    if not _STATS_HTML.is_file():
+        raise HTTPException(status_code=404, detail="stats.html missing")
+    return FileResponse(_STATS_HTML, media_type="text/html")
