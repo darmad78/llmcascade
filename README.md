@@ -67,7 +67,56 @@ Startup fails only if **no** model has a usable key.
 
 Token estimates for TPM gating use `len(text) // 4` (no tiktoken). After a successful call, provider-reported `tokens_used` is preferred for `record_usage`.
 
-## Library usage
+## Programmatic usage (Python)
+
+### A. HTTP client (talk to the deployed service)
+
+No llmrouter install required — call `POST /v1/complete` on the public host.
+
+```python
+import httpx
+
+BASE = "https://llmrouter.conceptgame.co.uk"
+
+def complete(prompt: str, capability: str = "chat", **params) -> dict:
+    r = httpx.post(
+        f"{BASE}/v1/complete",
+        json={"prompt": prompt, "capability": capability, "params": params},
+        timeout=120.0,
+    )
+    r.raise_for_status()
+    return r.json()  # text, model, tokens_used, latency_ms, raw
+
+data = complete("Say hi in one sentence.")
+print(data["model"], data["latency_ms"], data["text"])
+```
+
+Async:
+
+```python
+import httpx
+import asyncio
+
+BASE = "https://llmrouter.conceptgame.co.uk"
+
+async def complete(prompt: str, capability: str = "chat", **params) -> dict:
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(
+            f"{BASE}/v1/complete",
+            json={"prompt": prompt, "capability": capability, "params": params},
+        )
+        r.raise_for_status()
+        return r.json()
+
+asyncio.run(complete("Ping"))
+```
+
+Useful GETs: `/v1/status`, `/v1/metrics`, `/v1/health`, `/v1/status/gemini`.  
+`502` means the router exhausted eligible models (or a provider error bubbled up).
+
+### B. In-process library (`RouterClient`)
+
+Runs the dispatcher inside your app (needs provider keys in the environment / `.env`).
 
 ```python
 import asyncio
@@ -85,20 +134,46 @@ async def main():
 asyncio.run(main())
 ```
 
-Custom registry path:
+Custom registry / tuning:
 
 ```python
-client = RouterClient(models_path="/path/to/models.yaml", strategy="round_robin", workers=4, max_queue=100)
+client = RouterClient(
+    models_path="/path/to/models.yaml",
+    strategy="round_robin",  # or least_used, priority_first
+    workers=4,
+    max_queue=100,
+)
 ```
+
+Response shape (both paths): `text`, `model`, `tokens_used`, `latency_ms`, `raw`.
 
 ## Run (HTTP + dashboard)
 
 Budgets, metrics, health cache, and event logs are **in-memory and process-local**. Always run **one** process (one uvicorn worker / one PM2 instance). Do **not** use `--workers 2+` or PM2 cluster mode until a shared `BudgetStore` exists.
 
+### Production
+
+| | |
+|--|--|
+| Host | `/root/llmrouter` on the conceptgame VPS |
+| Process | PM2 `llmrouter` → `.venv/bin/uvicorn` on `127.0.0.1:12000` |
+| Public URL | **https://llmrouter.conceptgame.co.uk** (nginx → `:12000`, Cloudflare + Let’s Encrypt) |
+| Dashboard | https://llmrouter.conceptgame.co.uk/dashboard |
+
+Sample:
+
+```bash
+curl -sS https://llmrouter.conceptgame.co.uk/v1/complete \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"Say hi in one sentence.","capability":"chat"}'
+```
+
+Do **not** expose `:12000` publicly; use the HTTPS subdomain only.
+
 ### 1. Env + install
 
 ```bash
-cd /path/to/llmrouter
+cd /root/llmrouter   # or your local clone
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[api]"
 cp .env.example .env   # fill provider keys
@@ -111,33 +186,67 @@ set -a && source .env && set +a
 uvicorn llmrouter.api:app --host 0.0.0.0 --port 12000
 ```
 
-Open **http://localhost:12000/dashboard** for model status, live health, event log, and error log.
+Open **http://localhost:12000/dashboard**.
 
 ### 3. PM2 (production)
 
-Single instance only (`instances: 1`, no cluster):
+Single instance only (`instances: 1`, no cluster). Load `.env` in the shell **before** `pm2 start` so keys are inherited. Use the venv binary with `--interpreter none` (do **not** use `--interpreter bash`).
 
 ```bash
-cd /path/to/llmrouter
-source .venv/bin/activate
+cd /root/llmrouter
 set -a && source .env && set +a
 
-# first start
-pm2 start "uvicorn llmrouter.api:app --host 0.0.0.0 --port 12000" \
-  --name llmrouter --interpreter bash
-
-# after git pull / code changes
-git pull
-pip install -e ".[api]"
-pm2 restart llmrouter
+# first start / clean recreate
+pm2 delete llmrouter 2>/dev/null || true
+pm2 start .venv/bin/uvicorn --name llmrouter --interpreter none --cwd /root/llmrouter -- \
+  llmrouter.api:app --host 0.0.0.0 --port 12000
+pm2 save
 ```
 
-Persist across reboot:
+After `git pull` / code changes:
 
 ```bash
-pm2 save
-pm2 startup
+cd /root/llmrouter
+git pull
+source .venv/bin/activate
+pip install -e ".[api]"
+set -a && source .env && set +a
+pm2 restart llmrouter --update-env
 ```
+
+Persist across reboot: `pm2 startup` (once) then `pm2 save`.
+
+### 4. Nginx reverse proxy
+
+Site file `/etc/nginx/sites-available/llmrouter.conf` (symlink in `sites-enabled`), pattern matches other conceptgame apps:
+
+```nginx
+server {
+    listen 80;
+    server_name llmrouter.conceptgame.co.uk;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name llmrouter.conceptgame.co.uk;
+    ssl_certificate /etc/letsencrypt/live/conceptgame.co.uk/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/conceptgame.co.uk/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:12000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+DNS: Cloudflare `A` record `llmrouter` → origin IP (proxied). Reload nginx after edits: `nginx -t && systemctl reload nginx`.
 
 ### API routes
 
@@ -156,9 +265,10 @@ pm2 startup
 Example:
 
 ```bash
-curl -s localhost:12000/v1/complete \
+curl -s https://llmrouter.conceptgame.co.uk/v1/complete \
   -H 'content-type: application/json' \
   -d '{"prompt":"Hello","capability":"chat"}'
+# local: http://localhost:12000/v1/complete
 ```
 
 ## Failure / fallback behavior
