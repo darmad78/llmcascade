@@ -1,0 +1,169 @@
+models:
+  - name: llama-3.3-70b-versatile
+    provider: groq
+    endpoint: https://api.groq.com/openai/v1/chat/completions
+    auth_env_var: GROQ_API_KEY
+    limits:
+      rpd: 1000
+      rpm: 30
+      rps: 1
+      tpm: 12000
+      max_context: 128000
+    capabilities: [chat]
+    priority: 10
+
+  - name: gemini-2.0-flash
+    provider: gemini
+    endpoint: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
+    auth_env_var: GOOGLE_API_KEY
+    limits:
+      rpd: 1500
+      rpm: 15
+      rps: 1
+      tpm: 1000000
+      max_context: 1048576
+    capabilities: [chat]
+    priority: 20
+
+  - name: meta-llama/llama-3.3-70b-instruct:free
+    provider: openrouter
+    endpoint: https://openrouter.ai/api/v1/chat/completions
+    auth_env_var: OPENROUTER_API_KEY
+    limits:
+      rpd: 50
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 128000
+    capabilities: [chat]
+    priority: 30
+
+  - name: meta-llama/Llama-3.3-70B-Instruct-Turbo
+    provider: together
+    endpoint: https://api.together.xyz/v1/chat/completions
+    auth_env_var: TOGETHER_API_KEY
+    limits:
+      rpd: 100
+      rpm: 60
+      rps: 2
+      tpm: 60000
+      max_context: 128000
+    capabilities: [chat]
+    priority: 40
+
+  - name: llama3.1-8b
+    provider: cerebras
+    endpoint: https://api.cerebras.ai/v1/chat/completions
+    auth_env_var: CEREBRAS_API_KEY
+    limits:
+      rpd: 14400
+      rpm: 30
+      rps: 1
+      tpm: 60000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 50
+
+  - name: mistral-small-latest
+    provider: mistral
+    endpoint: https://api.mistral.ai/v1/chat/completions
+    auth_env_var: MISTRAL_API_KEY
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 500000
+      max_context: 32000
+    capabilities: [chat]
+    priority: 60
+
+  - name: Meta-Llama-3.3-70B-Instruct
+    provider: sambanova
+    endpoint: https://api.sambanova.ai/v1/chat/completions
+    auth_env_var: SAMBANOVA_API_KEY
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 128000
+    capabilities: [chat]
+    priority: 70
+
+  - name: deepseek-chat
+    provider: deepseek
+    endpoint: https://api.deepseek.com/chat/completions
+    auth_env_var: DEEPSEEK_API_KEY
+    limits:
+      rpd: 500
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 64000
+    capabilities: [chat]
+    priority: 80
+
+  - name: meta-llama/Meta-Llama-3.1-8B-Instruct
+    provider: huggingface
+    endpoint: https://router.huggingface.co/v1/chat/completions
+    auth_env_var: HF_TOKEN
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 50000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 90
+
+  - name: "@cf/meta/llama-3.1-8b-instruct"
+    provider: cloudflare
+    endpoint: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/meta/llama-3.1-8b-instruct
+    auth_env_var: CLOUDFLARE_API_KEY
+    limits:
+      rpd: 300
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 100
+
+  - name: command-r-08-2024
+    provider: cohere
+    endpoint: https://api.cohere.com/v2/chat
+    auth_env_var: COHERE_API_KEY
+    limits:
+      rpd: 1000
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 128000
+    capabilities: [chat]
+    priority: 110
+
+  - name: meta/llama-3.1-8b-instruct
+    provider: nvidia
+    endpoint: https://integrate.api.nvidia.com/v1/chat/completions
+    auth_env_var: NVIDIA_NIM_API_KEY
+    limits:
+      rpd: 1000
+      rpm: 40
+      rps: 1
+      tpm: 40000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 120
+
+  - name: meta-llama/Meta-Llama-3.1-8B-Instruct
+    provider: deepinfra
+    endpoint: https://api.deepinfra.com/v1/openai/chat/completions
+    auth_env_var: DEEPINFRA_API_KEY
+    limits:
+      rpd: 200
+      rpm: 60
+      rps: 2
+      tpm: 60000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 130
