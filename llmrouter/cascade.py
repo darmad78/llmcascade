@@ -190,6 +190,7 @@ class GeminiCascadeManager:
         now = datetime.now(timezone.utc)
         available: list[str] = []
         cooling: dict[str, str] = {}
+        remaining_s: dict[str, int] = {}
         async with self._lock:
             expired = [m for m, t in self._cooldowns.items() if t <= now]
             for m in expired:
@@ -200,11 +201,21 @@ class GeminiCascadeManager:
                     available.append(m)
                 else:
                     cooling[m] = until.isoformat()
+                    remaining_s[m] = max(0, int((until - now).total_seconds()))
+        next_ready_in_s: int | None
+        if available:
+            next_ready_in_s = 0
+        elif remaining_s:
+            next_ready_in_s = min(remaining_s.values())
+        else:
+            next_ready_in_s = None
         return {
             "logical": self.logical_name,
             "models": list(self.models),
             "available": available,
             "available_at": cooling,
+            "cooldown_remaining_s": remaining_s,
+            "next_ready_in_s": next_ready_in_s,
             "family_ready": bool(available),
         }
 

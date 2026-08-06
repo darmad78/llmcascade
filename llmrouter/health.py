@@ -112,7 +112,14 @@ class HealthCache:
             if not force and cached is not None and (now - cached.checked_at) < self.ttl_s:
                 out[model.name] = cached.to_dict()
                 continue
-            status = await probe_model(client, model)
+            try:
+                status = await probe_model(client, model)
+            except Exception as exc:  # noqa: BLE001
+                status = HealthStatus(
+                    state="down",
+                    message=f"probe error: {exc}",
+                    checked_at=time.time(),
+                )
             self._cache[model.name] = status
             events.record(
                 f"health {status.state}",

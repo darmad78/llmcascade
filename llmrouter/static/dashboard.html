@@ -66,6 +66,16 @@
       border-radius: 6px;
       padding: 0.85rem;
     }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-bottom: 0.75rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .summary strong { color: var(--text); font-weight: 550; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -96,9 +106,10 @@
       border: 1px solid transparent;
     }
     .ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-    .auth_error, .bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+    .auth_error, .bad, .cooling { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
     .down { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-    .unknown { color: var(--unk); border-color: color-mix(in srgb, var(--unk) 35%, transparent); background: color-mix(in srgb, var(--unk) 12%, transparent); }
+    .unknown, .ready { color: var(--unk); border-color: color-mix(in srgb, var(--unk) 35%, transparent); background: color-mix(in srgb, var(--unk) 12%, transparent); }
+    .warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
     .budget { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
     .logs {
       display: grid;
@@ -126,6 +137,7 @@
     .log-window .ok-line { color: var(--ok); }
     .log-window .ts { color: var(--muted); }
     .empty { color: var(--muted); }
+    #gemini-panel[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -148,6 +160,23 @@
             </tr>
           </thead>
           <tbody id="models"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel" id="gemini-panel" hidden>
+      <h2>Gemini cascade</h2>
+      <div class="summary" id="gemini-summary"></div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Cascade model</th>
+              <th>State</th>
+              <th>Cooldown</th>
+              <th>Ready at (UTC)</th>
+            </tr>
+          </thead>
+          <tbody id="gemini-rows"></tbody>
         </table>
       </div>
     </section>
@@ -176,6 +205,20 @@
       return `rps ${b.rps ?? "—"} · rpm ${b.rpm ?? "—"} · rpd ${b.rpd ?? "—"} · tpm ${b.tpm ?? "—"}`;
     }
 
+    function fmtDuration(sec) {
+      if (sec == null) return "—";
+      sec = Math.max(0, Math.floor(sec));
+      if (sec < 60) return `${sec}s`;
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      if (m < 60) return `${m}m ${s}s`;
+      const h = Math.floor(m / 60);
+      const rm = m % 60;
+      if (h < 48) return `${h}h ${rm}m`;
+      const d = Math.floor(h / 24);
+      return `${d}d ${h % 24}h`;
+    }
+
     function renderModels(models) {
       const tb = $("models");
       tb.innerHTML = models.map((m) => {
@@ -192,6 +235,43 @@
           <td class="budget">${escapeHtml(fmtBudget(m.budget))}</td>
           <td>${m.requests_total}</td>
           <td>${m.failures_total}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function renderGemini(g) {
+      const panel = $("gemini-panel");
+      if (!g || !g.models || !g.models.length) {
+        panel.hidden = true;
+        return;
+      }
+      panel.hidden = false;
+      const readyCls = g.family_ready ? "ok" : "warn";
+      const readyLabel = g.family_ready ? "ready" : "cooling";
+      const next = g.family_ready
+        ? "now"
+        : (g.next_ready_in_s != null ? fmtDuration(g.next_ready_in_s) : "—");
+      $("gemini-summary").innerHTML = `
+        <span>family <strong class="pill ${readyCls}">${readyLabel}</strong></span>
+        <span>budget <strong>${escapeHtml(fmtBudget(g.budget))}</strong></span>
+        <span>reqs <strong>${g.requests_total ?? 0}</strong></span>
+        <span>fails <strong>${g.failures_total ?? 0}</strong></span>
+        <span>next ready <strong>${escapeHtml(next)}</strong></span>
+      `;
+      const cooling = g.cooldown_remaining_s || {};
+      const at = g.available_at || {};
+      const available = new Set(g.available || []);
+      $("gemini-rows").innerHTML = (g.models || []).map((id) => {
+        const isReady = available.has(id);
+        const rem = cooling[id];
+        const state = isReady ? "ready" : "cooling";
+        const cool = isReady ? "—" : fmtDuration(rem);
+        const readyAt = isReady ? "—" : (at[id] || "—");
+        return `<tr>
+          <td class="name">${escapeHtml(id)}</td>
+          <td><span class="pill ${isReady ? "ok" : "cooling"}">${state}</span></td>
+          <td class="budget">${escapeHtml(cool)}</td>
+          <td class="budget">${escapeHtml(readyAt)}</td>
         </tr>`;
       }).join("");
     }
@@ -226,10 +306,12 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         renderModels(data.models || []);
+        renderGemini(data.gemini_cascade);
         renderLog($("events"), data.events || [], "no events yet");
         renderLog($("errors"), data.errors || [], "no errors");
+        const q = data.queue || {};
         $("meta").textContent =
-          `${(data.models || []).length} models · refreshed ${new Date().toLocaleTimeString()}`;
+          `${(data.models || []).length} models · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · workers ${q.workers ?? "—"} · ${new Date().toLocaleTimeString()}`;
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
       }

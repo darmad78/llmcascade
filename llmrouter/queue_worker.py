@@ -48,6 +48,7 @@ class RouterClient:
             self.rate_limiter.gemini_cascade = self.gemini_cascade
         self.selector = ModelSelector(self.registry, self.rate_limiter, strategy=strategy)
         self._workers_n = workers
+        self._max_queue = max_queue
         self._queue: asyncio.Queue[_Job | None] = asyncio.Queue(maxsize=max_queue)
         self._tasks: list[asyncio.Task[None]] = []
         self._client = httpx.AsyncClient(timeout=60.0)
@@ -155,7 +156,11 @@ class RouterClient:
     async def dashboard_snapshot(self, *, force_health: bool = False) -> dict[str, Any]:
         budgets = await self.status()
         snap = metrics.snapshot()
-        health = await self.health_snapshot(force=force_health)
+        try:
+            health = await self.health_snapshot(force=force_health)
+        except Exception as exc:  # noqa: BLE001 — keep dashboard up if a probe crashes
+            health = {}
+            events.record(f"health probe failed: {exc}", level="error")
         models = []
         for m in self.registry:
             entry: dict[str, Any] = {
@@ -172,9 +177,22 @@ class RouterClient:
             if m.cascade:
                 entry["cascade"] = list(m.cascade)
             models.append(entry)
+        gemini = budgets.get("gemini_cascade")
+        if isinstance(gemini, dict):
+            gemini = {
+                **gemini,
+                "budget": budgets.get("gemini", {}),
+                "requests_total": snap["requests_total"].get("gemini", 0),
+                "failures_total": snap["failures_total"].get("gemini", 0),
+            }
         return {
             "models": models,
-            "gemini_cascade": budgets.get("gemini_cascade"),
+            "gemini_cascade": gemini,
+            "queue": {
+                "depth": self._queue.qsize(),
+                "maxsize": self._max_queue,
+                "workers": self._workers_n,
+            },
             "events": events.events(),
             "errors": events.errors(),
         }
