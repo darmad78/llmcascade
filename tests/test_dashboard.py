@@ -13,8 +13,8 @@ def test_event_log_splits_errors():
     assert len(log.events()) == 3
     errs = log.errors()
     assert len(errs) == 2
-    assert errs[0]["message"] == "boom"
-    assert errs[1]["message"] == "fail"
+    assert errs[0]["message"] == "fail"
+    assert errs[1]["message"] == "boom"
 
 
 def test_event_log_ring_buffer():
@@ -22,7 +22,7 @@ def test_event_log_ring_buffer():
     for i in range(5):
         log.record(f"e{i}")
     msgs = [e["message"] for e in log.events()]
-    assert msgs == ["e2", "e3", "e4"]
+    assert msgs == ["e4", "e3", "e2"]
 
 
 def test_classify_health():

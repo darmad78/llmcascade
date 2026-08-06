@@ -54,15 +54,18 @@ class EventLog:
     def events(self, limit: int | None = None) -> list[dict[str, Any]]:
         with self._lock:
             items = list(self._events)
+        # Newest first for dashboard / API consumers.
+        items.reverse()
         if limit is not None:
-            items = items[-limit:]
+            items = items[:limit]
         return [e.to_dict() for e in items]
 
     def errors(self, limit: int | None = None) -> list[dict[str, Any]]:
         with self._lock:
             items = list(self._errors)
+        items.reverse()
         if limit is not None:
-            items = items[-limit:]
+            items = items[:limit]
         return [e.to_dict() for e in items]
 
 

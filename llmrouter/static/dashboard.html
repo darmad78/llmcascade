@@ -518,7 +518,7 @@
         el.innerHTML = `<span class="empty">${emptyMsg}</span>`;
         return;
       }
-      const stickBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+      const stickTop = el.scrollTop <= 8;
       el.innerHTML = items.map((e) => {
         const cls = e.level === "error" || e.detail?.success === false ? "err"
           : e.detail?.success === true ? "ok-line" : "";
@@ -526,7 +526,7 @@
         const extra = e.detail?.error ? ` — ${e.detail.error}` : "";
         return `<div class="${cls}"><span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(extra)}</div>`;
       }).join("");
-      if (stickBottom) el.scrollTop = el.scrollHeight;
+      if (stickTop) el.scrollTop = 0;
     }
 
     function escapeHtml(s) {
