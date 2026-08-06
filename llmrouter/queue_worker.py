@@ -8,7 +8,9 @@ import httpx
 
 from llmrouter.adapters import get_adapter
 from llmrouter.adapters.base import LLMResponse
+from llmrouter.event_log import events
 from llmrouter.exceptions import QueueFullError
+from llmrouter.health import health_cache
 from llmrouter.metrics import metrics
 from llmrouter.rate_limiter import RateLimiter
 from llmrouter.registry import ModelConfig, load_registry
@@ -102,6 +104,7 @@ class RouterClient:
         try:
             self._queue.put_nowait(job)
         except asyncio.QueueFull as exc:
+            events.record("request queue is full", level="error", capability=capability)
             raise QueueFullError("request queue is full") from exc
         return await fut
 
@@ -112,3 +115,31 @@ class RouterClient:
         snap = metrics.snapshot()
         budgets = await self.status()
         return {**snap, "current_budget": budgets}
+
+    async def health_snapshot(self, *, force: bool = False) -> dict[str, dict[str, Any]]:
+        return await health_cache.statuses(self._client, self.registry, force=force)
+
+    async def dashboard_snapshot(self, *, force_health: bool = False) -> dict[str, Any]:
+        budgets = await self.status()
+        snap = metrics.snapshot()
+        health = await self.health_snapshot(force=force_health)
+        models = []
+        for m in self.registry:
+            models.append(
+                {
+                    "name": m.name,
+                    "provider": m.provider,
+                    "priority": m.priority,
+                    "capabilities": m.capabilities,
+                    "limits": m.limits.model_dump(),
+                    "budget": budgets.get(m.name, {}),
+                    "requests_total": snap["requests_total"].get(m.name, 0),
+                    "failures_total": snap["failures_total"].get(m.name, 0),
+                    "health": health.get(m.name, {"state": "unknown"}),
+                }
+            )
+        return {
+            "models": models,
+            "events": events.events(),
+            "errors": events.errors(),
+        }

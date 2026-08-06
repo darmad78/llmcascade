@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from llmrouter.adapters.base import LLMResponse
 from llmrouter.exceptions import AllModelsExhaustedError, ProviderError
+from llmrouter.event_log import events
 from llmrouter.metrics import log, metrics
 from llmrouter.rate_limiter import RateLimiter
 from llmrouter.registry import ModelConfig
@@ -106,6 +107,16 @@ class ModelSelector:
                         "capability": capability,
                     },
                 )
+                events.record(
+                    "request ok",
+                    level="info",
+                    model=model.name,
+                    provider=model.provider,
+                    success=True,
+                    latency_ms=resp.latency_ms,
+                    tokens_used=used,
+                    capability=capability,
+                )
                 return resp
             except ProviderError as exc:
                 last_err = exc
@@ -121,9 +132,20 @@ class ModelSelector:
                         "capability": capability,
                     },
                 )
+                events.record(
+                    "request fail",
+                    level="error",
+                    model=model.name,
+                    provider=model.provider,
+                    success=False,
+                    error=str(exc),
+                    capability=capability,
+                )
                 continue
 
-        raise AllModelsExhaustedError(
+        msg = (
             f"no free-tier model succeeded for capability={capability!r}"
             + (f"; last error: {last_err}" if last_err else "")
         )
+        events.record(msg, level="error", capability=capability)
+        raise AllModelsExhaustedError(msg)

@@ -23,7 +23,7 @@ where = ["."]
 include = ["llmrouter*"]
 
 [tool.setuptools.package-data]
-llmrouter = ["models.yaml"]
+llmrouter = ["models.yaml", "static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

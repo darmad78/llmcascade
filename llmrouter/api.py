@@ -15,15 +15,18 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from llmrouter.adapters.base import LLMResponse
+from llmrouter.event_log import events
 from llmrouter.queue_worker import RouterClient
 
 try:
     from fastapi import FastAPI, HTTPException
+    from fastapi.responses import FileResponse
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Install llmrouter[api] to use the HTTP layer") from exc
 
 
 _client: RouterClient | None = None
+_DASHBOARD_HTML = Path(__file__).resolve().parent / "static" / "dashboard.html"
 
 
 class CompleteRequest(BaseModel):
@@ -38,8 +41,10 @@ async def lifespan(app: FastAPI):
     models_path = Path(__file__).resolve().parent / "models.yaml"
     _client = RouterClient(models_path=str(models_path))
     await _client.start()
+    events.record("router started", level="info", models=len(_client.registry))
     yield
     await _client.shutdown(graceful=True)
+    events.record("router stopped", level="info")
     _client = None
 
 
@@ -58,6 +63,7 @@ async def complete(body: CompleteRequest) -> LLMResponse:
     try:
         return await client.submit(body.prompt, body.capability, **body.params)
     except Exception as exc:
+        events.record(str(exc), level="error", capability=body.capability)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
@@ -69,3 +75,30 @@ async def status() -> dict[str, dict[str, int]]:
 @app.get("/v1/metrics")
 async def metrics_endpoint() -> dict[str, Any]:
     return await _require_client().metrics_snapshot()
+
+
+@app.get("/v1/health")
+async def health_endpoint(force: bool = False) -> dict[str, dict[str, Any]]:
+    return await _require_client().health_snapshot(force=force)
+
+
+@app.get("/v1/events")
+async def events_endpoint(limit: int | None = None) -> list[dict[str, Any]]:
+    return events.events(limit=limit)
+
+
+@app.get("/v1/errors")
+async def errors_endpoint(limit: int | None = None) -> list[dict[str, Any]]:
+    return events.errors(limit=limit)
+
+
+@app.get("/v1/dashboard")
+async def dashboard_data(force_health: bool = False) -> dict[str, Any]:
+    return await _require_client().dashboard_snapshot(force_health=force_health)
+
+
+@app.get("/dashboard")
+async def dashboard_page() -> FileResponse:
+    if not _DASHBOARD_HTML.is_file():
+        raise HTTPException(status_code=404, detail="dashboard.html missing")
+    return FileResponse(_DASHBOARD_HTML, media_type="text/html")

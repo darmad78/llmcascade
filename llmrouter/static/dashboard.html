@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmrouter · status</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --line: #2a3544;
+      --text: #d6dde6;
+      --muted: #8b97a8;
+      --ok: #3dba7a;
+      --warn: #d4a017;
+      --bad: #e05a5a;
+      --unk: #6b7788;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+      --log-lines: 30;
+      --log-lh: 1.35;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #1a2830 0%, transparent 50%),
+        var(--bg);
+    }
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    h1 span { color: var(--muted); font-weight: 500; }
+    .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1rem 1.5rem 1.5rem;
+    }
+    h2 {
+      margin: 0 0 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .panel {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.85rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 550;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    tr:last-child td { border-bottom: none; }
+    .name { font-family: var(--mono); font-size: 0.82rem; }
+    .provider { color: var(--muted); font-size: 0.8rem; }
+    .pill {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      border: 1px solid transparent;
+    }
+    .ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+    .auth_error, .bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+    .down { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+    .unknown { color: var(--unk); border-color: color-mix(in srgb, var(--unk) 35%, transparent); background: color-mix(in srgb, var(--unk) 12%, transparent); }
+    .budget { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .logs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 900px) {
+      .logs { grid-template-columns: 1fr; }
+      table { font-size: 0.8rem; }
+    }
+    .log-window {
+      height: calc(var(--log-lines) * 1em * var(--log-lh));
+      overflow-y: auto;
+      background: #0b1015;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0.5rem 0.65rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: var(--log-lh);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-window .err { color: var(--bad); }
+    .log-window .ok-line { color: var(--ok); }
+    .log-window .ts { color: var(--muted); }
+    .empty { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>llmrouter <span>status</span></h1>
+    <div class="meta" id="meta">loading…</div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Configured models</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Health</th>
+              <th>Budget left</th>
+              <th>Reqs</th>
+              <th>Fails</th>
+            </tr>
+          </thead>
+          <tbody id="models"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="logs">
+      <div class="panel">
+        <h2>Event log</h2>
+        <div class="log-window" id="events"><span class="empty">no events yet</span></div>
+      </div>
+      <div class="panel">
+        <h2>Error log</h2>
+        <div class="log-window" id="errors"><span class="empty">no errors</span></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function fmtTime(ts) {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString(undefined, { hour12: false }) +
+        "." + String(d.getMilliseconds()).padStart(3, "0");
+    }
+
+    function fmtBudget(b) {
+      if (!b) return "—";
+      return `rps ${b.rps ?? "—"} · rpm ${b.rpm ?? "—"} · rpd ${b.rpd ?? "—"} · tpm ${b.tpm ?? "—"}`;
+    }
+
+    function renderModels(models) {
+      const tb = $("models");
+      tb.innerHTML = models.map((m) => {
+        const h = m.health || {};
+        const state = h.state || "unknown";
+        const tip = [h.message, h.latency_ms != null ? `${h.latency_ms}ms` : null]
+          .filter(Boolean).join(" · ");
+        return `<tr>
+          <td>
+            <div class="name">${escapeHtml(m.name)}</div>
+            <div class="provider">${escapeHtml(m.provider)} · p${m.priority}</div>
+          </td>
+          <td><span class="pill ${state}" title="${escapeHtml(tip)}">${escapeHtml(state)}</span></td>
+          <td class="budget">${escapeHtml(fmtBudget(m.budget))}</td>
+          <td>${m.requests_total}</td>
+          <td>${m.failures_total}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function renderLog(el, items, emptyMsg) {
+      if (!items.length) {
+        el.innerHTML = `<span class="empty">${emptyMsg}</span>`;
+        return;
+      }
+      const stickBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+      el.innerHTML = items.map((e) => {
+        const cls = e.level === "error" || e.detail?.success === false ? "err"
+          : e.detail?.success === true ? "ok-line" : "";
+        const model = e.model ? ` [${e.model}]` : "";
+        const extra = e.detail?.error ? ` — ${e.detail.error}` : "";
+        return `<div class="${cls}"><span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(extra)}</div>`;
+      }).join("");
+      if (stickBottom) el.scrollTop = el.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/v1/dashboard");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderModels(data.models || []);
+        renderLog($("events"), data.events || [], "no events yet");
+        renderLog($("errors"), data.errors || [], "no errors");
+        $("meta").textContent =
+          `${(data.models || []).length} models · refreshed ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        $("meta").textContent = `refresh failed: ${err.message}`;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>
