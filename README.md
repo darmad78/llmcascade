@@ -11,7 +11,7 @@ Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP lay
 - Round-robin selection over the eligible pool (also `least_used`, `priority_first`)
 - Same-model retry once on timeout/5xx, then fallback; `AllModelsExhaustedError` if none succeed
 - Async queue + worker pool with backpressure (`QueueFullError`)
-- Structured JSON request logs + in-memory metrics
+- Structured JSON request logs (metadata only) + in-memory metrics
 - Status dashboard (`/dashboard`) with per-model health, budgets, event/error logs
 - Optional `POST /v1/complete` HTTP API
 
@@ -313,6 +313,7 @@ pytest -q
 ```
 llmrouter/
   pyproject.toml
+  LICENSE
   .env.example
   README.md
   llmrouter/
@@ -331,6 +332,20 @@ llmrouter/
   tests/
 ```
 
+## Privacy & security
+
+- **Credentials:** Provider keys live in `.env` (gitignored). Never commit secrets; use `.env.example` as a template.
+- **Logging:** Structured logs and the in-memory event/error rings record metadata only (model, provider, latency, tokens, capability, success/error). They do **not** persist prompt text, completions, or API keys.
+- **Public host:** The deployed instance at `llmrouter.conceptgame.co.uk` is BYOK against operator-held keys; treat it accordingly and do not send sensitive prompts you are unwilling to expose to upstream providers.
+
+## Legal & ToS Disclaimer
+
+This software is an open-source utility designed to assist individual developers in managing their own API keys and rate limits.
+
+- **Compliance:** Users are solely responsible for ensuring that their usage of this software complies with the Terms of Service of each upstream LLM provider (Google Gemini, Groq, OpenRouter, Together, Cerebras, Mistral, SambaNova, DeepSeek, Hugging Face, Cloudflare, Cohere, NVIDIA NIM, DeepInfra).
+- **BYOK (Bring Your Own Key):** This application does not provide or resell API access. Users must supply their own authorized API credentials.
+- **No Warranty:** The maintainers are not responsible for account suspensions, rate-limit bans, API service disruptions, or unexpected billing incurred through the use of this software.
+
 ## License
 
-Private repository — all rights reserved unless a license file is added later.
+Distributed under the [MIT License](LICENSE).
