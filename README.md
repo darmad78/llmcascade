@@ -58,11 +58,12 @@ pip install "llmrouter[api] @ git+https://github.com/darmad78/llmrouter.git"
 
 ```bash
 cp .env.example .env
-# fill provider keys — load_registry fails if any configured model's auth env is missing
+# fill the keys you have — models without a key are skipped at startup
 ```
 
 Hugging Face: `HF_TOKEN` is preferred; if unset, `HUGGINGFACE_API_KEY` is used.  
-Cloudflare: both `CLOUDFLARE_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are required when a Cloudflare model is in the registry.
+Cloudflare: both `CLOUDFLARE_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are required for the Cloudflare model to load.  
+Startup fails only if **no** model has a usable key.
 
 Token estimates for TPM gating use `len(text) // 4` (no tiktoken). After a successful call, provider-reported `tokens_used` is preferred for `record_usage`.
 

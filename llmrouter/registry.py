@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from llmrouter.exceptions import RegistryError
+from llmrouter.metrics import log
 
 # auth_env_var -> alternate env names accepted at load/runtime
 _AUTH_ALIASES: dict[str, tuple[str, ...]] = {
@@ -54,6 +55,14 @@ def _missing_auth_label(auth_env_var: str) -> str:
     return auth_env_var
 
 
+def _model_ready(model: ModelConfig) -> bool:
+    if not resolve_auth_env(model.auth_env_var):
+        return False
+    if model.provider == "cloudflare" and not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
+        return False
+    return True
+
+
 def load_registry(path: str | Path | None = None) -> list[ModelConfig]:
     cfg_path = Path(path) if path else default_models_path()
     if not cfg_path.is_file():
@@ -62,15 +71,15 @@ def load_registry(path: str | Path | None = None) -> list[ModelConfig]:
     if not isinstance(raw, dict) or "models" not in raw:
         raise RegistryError("models.yaml must contain a top-level 'models' list")
     models = [ModelConfig.model_validate(item) for item in raw["models"]]
-    missing = sorted(
-        {
-            _missing_auth_label(m.auth_env_var)
-            for m in models
-            if not resolve_auth_env(m.auth_env_var)
-        }
-    )
-    if any(m.provider == "cloudflare" for m in models) and not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
-        missing.append("CLOUDFLARE_ACCOUNT_ID")
-    if missing:
-        raise RegistryError(f"missing required env vars: {', '.join(sorted(set(missing)))}")
-    return models
+    ready: list[ModelConfig] = []
+    for m in models:
+        if _model_ready(m):
+            ready.append(m)
+            continue
+        reason = _missing_auth_label(m.auth_env_var)
+        if m.provider == "cloudflare" and not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
+            reason = f"{reason}, CLOUDFLARE_ACCOUNT_ID"
+        log.warning("skipping model %s — missing %s", m.name, reason)
+    if not ready:
+        raise RegistryError("no models available — set at least one provider API key in the environment")
+    return ready
