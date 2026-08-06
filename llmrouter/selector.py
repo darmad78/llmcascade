@@ -57,6 +57,22 @@ class ModelSelector:
         self._rr_index += 1
         return eligible[idx]
 
+    async def peek(self, capability: str, tokens_estimate: int = 1) -> ModelConfig | None:
+        """Next pick without advancing round-robin state (safe for dashboards)."""
+        eligible = await self._eligible(capability, tokens_estimate)
+        if not eligible:
+            return None
+        if self.strategy == "priority_first":
+            return sorted(eligible, key=lambda m: m.priority)[0]
+        if self.strategy == "least_used":
+            budgets = []
+            for m in eligible:
+                rem = await self.rate_limiter.remaining_budget(m.name)
+                budgets.append((rem.get("rpd", 0) + rem.get("rpm", 0), m))
+            budgets.sort(key=lambda x: x[0], reverse=True)
+            return budgets[0][1]
+        return eligible[self._rr_index % len(eligible)]
+
     async def _try_model(
         self,
         model: ModelConfig,

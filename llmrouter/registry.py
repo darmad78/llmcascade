@@ -34,6 +34,9 @@ class ModelConfig(BaseModel):
     priority: int = 100
     # Ordered Gemini model IDs under one logical entry (provider=gemini).
     cascade: list[str] = Field(default_factory=list)
+    # When true, limits are treated as researched free-tier caps; dashboard shows remaining.
+    free_tier_verified: bool = False
+    free_tier_note: str = ""
 
 
 def default_models_path() -> Path:

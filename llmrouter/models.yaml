@@ -1,8 +1,11 @@
 models:
+  # Groq free: llama-3.3-70b-versatile — 30 RPM · 12K TPM · 1,000 RPD (org-level).
   - name: llama-3.3-70b-versatile
     provider: groq
     endpoint: https://api.groq.com/openai/v1/chat/completions
     auth_env_var: GROQ_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Groq free · llama-3.3-70b · 1,000 RPD · 30 RPM · 12K TPM"
     limits:
       rpd: 1000
       rpm: 30
@@ -12,13 +15,13 @@ models:
     capabilities: [chat]
     priority: 10
 
-  # Logical Gemini family — cascade tries models in order before outer fallback.
-  # gemini-2.0-* shut down (Jun 2026). 404 → permanent cooldown for that ID.
-  # Optional GEMINI_MODEL env prepends a preferred head of the cascade.
+  # Gemini free Flash family — typical Free ~10 RPM · 1,500 RPD (varies by model/project in AI Studio).
   - name: gemini
     provider: gemini
     endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
     auth_env_var: GOOGLE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Gemini Free Flash family · ~1,500 RPD · ~10 RPM (project/model may differ)"
     cascade:
       - gemini-3.6-flash
       - gemini-3.5-flash
@@ -27,18 +30,20 @@ models:
       - gemini-2.5-flash-lite
     limits:
       rpd: 1500
-      rpm: 15
+      rpm: 10
       rps: 1
-      tpm: 1000000
+      tpm: 250000
       max_context: 1048576
     capabilities: [chat]
     priority: 20
 
-  # Free Models Router — picks any live :free model (avoids deprecated fixed slugs).
+  # OpenRouter free models — account-wide free quota: 20 RPM · 50 RPD (<$10 credits) / 1,000 RPD (≥$10).
   - name: openrouter/free
     provider: openrouter
     endpoint: https://openrouter.ai/api/v1/chat/completions
     auth_env_var: OPENROUTER_API_KEY
+    free_tier_verified: true
+    free_tier_note: "OpenRouter :free · 50 RPD (1,000 if ≥$10 credits) · 20 RPM"
     limits:
       rpd: 50
       rpm: 20
@@ -52,6 +57,8 @@ models:
     provider: together
     endpoint: https://api.together.xyz/v1/chat/completions
     auth_env_var: TOGETHER_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Together free tier not published as fixed RPD — counters unverified"
     limits:
       rpd: 100
       rpm: 60
@@ -61,10 +68,13 @@ models:
     capabilities: [chat]
     priority: 40
 
+  # Cerebras free: llama3.1-8b — 30 RPM · ~60K TPM · 14,400 RPD · ~1M TPD.
   - name: llama3.1-8b
     provider: cerebras
     endpoint: https://api.cerebras.ai/v1/chat/completions
     auth_env_var: CEREBRAS_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Cerebras free · llama3.1-8b · 14,400 RPD · 30 RPM · 60K TPM"
     limits:
       rpd: 14400
       rpm: 30
@@ -78,6 +88,8 @@ models:
     provider: mistral
     endpoint: https://api.mistral.ai/v1/chat/completions
     auth_env_var: MISTRAL_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Mistral Free mode is workspace-specific — counters unverified"
     limits:
       rpd: 1000
       rpm: 60
@@ -91,6 +103,8 @@ models:
     provider: sambanova
     endpoint: https://api.sambanova.ai/v1/chat/completions
     auth_env_var: SAMBANOVA_API_KEY
+    free_tier_verified: false
+    free_tier_note: "SambaNova free limits console-only — counters unverified"
     limits:
       rpd: 1000
       rpm: 60
@@ -104,6 +118,8 @@ models:
     provider: deepseek
     endpoint: https://api.deepseek.com/chat/completions
     auth_env_var: DEEPSEEK_API_KEY
+    free_tier_verified: false
+    free_tier_note: "DeepSeek has no stable free API tier — counters unverified"
     limits:
       rpd: 500
       rpm: 60
@@ -117,6 +133,8 @@ models:
     provider: huggingface
     endpoint: https://router.huggingface.co/v1/chat/completions
     auth_env_var: HF_TOKEN
+    free_tier_verified: false
+    free_tier_note: "HF free inference is credit-based — counters unverified"
     limits:
       rpd: 200
       rpm: 30
@@ -130,6 +148,8 @@ models:
     provider: cloudflare
     endpoint: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/meta/llama-3.1-8b-instruct
     auth_env_var: CLOUDFLARE_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Workers AI uses neurons/day — RPD counter unverified"
     limits:
       rpd: 300
       rpm: 60
@@ -139,10 +159,13 @@ models:
     capabilities: [chat]
     priority: 100
 
+  # Cohere trial/free: commonly 20 RPM; daily/monthly caps vary — treat RPD as soft.
   - name: command-r-08-2024
     provider: cohere
     endpoint: https://api.cohere.com/v2/chat
     auth_env_var: COHERE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Cohere trial/free · ~20 RPM (monthly call caps may also apply)"
     limits:
       rpd: 1000
       rpm: 20
@@ -152,10 +175,13 @@ models:
     capabilities: [chat]
     priority: 110
 
+  # NVIDIA NIM free: commonly ~40 RPM, no published RPD — RPD is a soft local gate.
   - name: meta/llama-3.1-8b-instruct
     provider: nvidia
     endpoint: https://integrate.api.nvidia.com/v1/chat/completions
     auth_env_var: NVIDIA_NIM_API_KEY
+    free_tier_verified: true
+    free_tier_note: "NVIDIA NIM free · ~40 RPM (no published RPD; local RPD is soft)"
     limits:
       rpd: 1000
       rpm: 40
@@ -169,6 +195,8 @@ models:
     provider: deepinfra
     endpoint: https://api.deepinfra.com/v1/openai/chat/completions
     auth_env_var: DEEPINFRA_API_KEY
+    free_tier_verified: false
+    free_tier_note: "DeepInfra free credits rotate — counters unverified"
     limits:
       rpd: 200
       rpm: 60

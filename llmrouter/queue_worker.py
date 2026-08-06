@@ -161,15 +161,21 @@ class RouterClient:
         except Exception as exc:  # noqa: BLE001 — keep dashboard up if a probe crashes
             health = {}
             events.record(f"health probe failed: {exc}", level="error")
+        next_model = await self.selector.peek("chat", tokens_estimate=1)
         models = []
         for m in self.registry:
+            budget = budgets.get(m.name, {})
             entry: dict[str, Any] = {
                 "name": m.name,
                 "provider": m.provider,
                 "priority": m.priority,
                 "capabilities": m.capabilities,
                 "limits": m.limits.model_dump(),
-                "budget": budgets.get(m.name, {}),
+                "budget": budget,
+                "free_tier_verified": m.free_tier_verified,
+                "free_tier_note": m.free_tier_note,
+                "free_left": budget if m.free_tier_verified else None,
+                "is_next": bool(next_model and next_model.name == m.name),
                 "requests_total": snap["requests_total"].get(m.name, 0),
                 "failures_total": snap["failures_total"].get(m.name, 0),
                 "health": health.get(m.name, {"state": "unknown"}),
@@ -187,6 +193,11 @@ class RouterClient:
             }
         return {
             "models": models,
+            "next_pick": (
+                {"name": next_model.name, "provider": next_model.provider, "priority": next_model.priority}
+                if next_model
+                else None
+            ),
             "gemini_cascade": gemini,
             "queue": {
                 "depth": self._queue.qsize(),

@@ -111,6 +111,28 @@
     .unknown, .ready { color: var(--unk); border-color: color-mix(in srgb, var(--unk) 35%, transparent); background: color-mix(in srgb, var(--unk) 12%, transparent); }
     .warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
     .budget { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .free-note { color: var(--muted); font-size: 0.72rem; margin-top: 0.2rem; max-width: 22rem; }
+    .free-left { font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+    .free-left .cap { color: var(--muted); }
+    .free-unverified { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+    tr.next-pick td {
+      background: color-mix(in srgb, var(--ok) 10%, transparent);
+      box-shadow: inset 3px 0 0 var(--ok);
+    }
+    .next-badge {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.08rem 0.4rem;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--ok);
+      border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+      background: color-mix(in srgb, var(--ok) 14%, transparent);
+      vertical-align: middle;
+    }
     .logs {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -291,6 +313,8 @@
             <tr>
               <th>Model</th>
               <th>Health</th>
+              <th>Free tier</th>
+              <th>Free left</th>
               <th>Budget left</th>
               <th>Reqs</th>
               <th>Fails</th>
@@ -370,19 +394,51 @@
       return `${d}d ${h % 24}h`;
     }
 
-    function renderModels(models) {
+    function fmtFreeLeft(m) {
+      if (!m.free_tier_verified) {
+        return `<span class="free-unverified" title="${escapeHtml(m.free_tier_note || "")}">unverified</span>`;
+      }
+      const b = m.free_left || m.budget || {};
+      const lim = m.limits || {};
+      const parts = [
+        ["rpd", b.rpd, lim.rpd],
+        ["rpm", b.rpm, lim.rpm],
+      ].map(([k, left, cap]) => {
+        const l = left ?? "—";
+        const c = cap ?? "—";
+        return `<span>${k} <strong>${escapeHtml(l)}</strong><span class="cap">/${escapeHtml(c)}</span></span>`;
+      });
+      return `<div class="free-left">${parts.join(" · ")}</div>`;
+    }
+
+    function fmtFreeTier(m) {
+      const lim = m.limits || {};
+      if (!m.free_tier_verified) {
+        return `<span class="free-unverified">—</span>
+          <div class="free-note">${escapeHtml(m.free_tier_note || "free-tier limits not verified")}</div>`;
+      }
+      const caps = `rpd ${lim.rpd ?? "—"} · rpm ${lim.rpm ?? "—"}`;
+      return `<div class="budget">${escapeHtml(caps)}</div>
+        <div class="free-note">${escapeHtml(m.free_tier_note || "")}</div>`;
+    }
+
+    function renderModels(models, nextPick) {
       const tb = $("models");
       tb.innerHTML = models.map((m) => {
         const h = m.health || {};
         const state = h.state || "unknown";
         const tip = [h.message, h.latency_ms != null ? `${h.latency_ms}ms` : null]
           .filter(Boolean).join(" · ");
-        return `<tr>
+        const isNext = m.is_next || (nextPick && nextPick.name === m.name);
+        const nextBadge = isNext ? `<span class="next-badge">next</span>` : "";
+        return `<tr class="${isNext ? "next-pick" : ""}">
           <td>
-            <div class="name">${escapeHtml(m.name)}</div>
+            <div class="name">${escapeHtml(m.name)}${nextBadge}</div>
             <div class="provider">${escapeHtml(m.provider)} · p${m.priority}</div>
           </td>
           <td><span class="pill ${state}" title="${escapeHtml(tip)}">${escapeHtml(state)}</span></td>
+          <td>${fmtFreeTier(m)}</td>
+          <td>${fmtFreeLeft(m)}</td>
           <td class="budget">${escapeHtml(fmtBudget(m.budget))}</td>
           <td>${m.requests_total}</td>
           <td>${m.failures_total}</td>
@@ -456,13 +512,16 @@
         const res = await fetch("/v1/dashboard");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        renderModels(data.models || []);
+        renderModels(data.models || [], data.next_pick);
         renderGemini(data.gemini_cascade);
         renderLog($("events"), data.events || [], "no events yet");
         renderLog($("errors"), data.errors || [], "no errors");
         const q = data.queue || {};
+        const next = data.next_pick
+          ? `next ${data.next_pick.name}`
+          : "next —";
         $("meta").textContent =
-          `${(data.models || []).length} models · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · workers ${q.workers ?? "—"} · ${new Date().toLocaleTimeString()}`;
+          `${(data.models || []).length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · workers ${q.workers ?? "—"} · ${new Date().toLocaleTimeString()}`;
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
       }
