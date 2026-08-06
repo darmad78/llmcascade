@@ -2,7 +2,7 @@
 Optional FastAPI HTTP layer for llmrouter.
 
 v1 budgets are process-local — run a single uvicorn worker only:
-  uvicorn llmrouter.api:app --host 0.0.0.0 --port 8080
+  uvicorn llmrouter.api:app --host 0.0.0.0 --port 12000
 Do not use --workers > 1 until a shared BudgetStore (e.g. Redis) is implemented.
 """
 
@@ -68,8 +68,13 @@ async def complete(body: CompleteRequest) -> LLMResponse:
 
 
 @app.get("/v1/status")
-async def status() -> dict[str, dict[str, int]]:
+async def status() -> dict[str, Any]:
     return await _require_client().status()
+
+
+@app.get("/v1/status/gemini")
+async def gemini_status() -> dict[str, Any]:
+    return await _require_client().gemini_status()
 
 
 @app.get("/v1/metrics")
