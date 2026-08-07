@@ -26,11 +26,14 @@ class ModelSelector:
         rate_limiter: RateLimiter,
         strategy: Strategy = "round_robin",
         stats: StatsStore | NullStatsStore | None = None,
+        *,
+        cooldowns: Any | None = None,
     ) -> None:
         self.registry = list(registry)
         self.rate_limiter = rate_limiter
         self.strategy = strategy
         self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
+        self.cooldowns = cooldowns
         self._rr_index = 0
 
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
@@ -115,7 +118,7 @@ class ModelSelector:
                 used = resp.tokens_used or tokens_est
                 await self.rate_limiter.record_usage(model.name, used)
                 metrics.record_success(model.name)
-                self.stats.enqueue(
+                await self.stats.record(
                     model=model.name,
                     provider=model.provider,
                     success=True,
@@ -147,13 +150,29 @@ class ModelSelector:
             except ProviderError as exc:
                 last_err = exc
                 metrics.record_failure(model.name)
-                self.stats.enqueue(
+                await self.stats.record(
                     model=model.name,
                     provider=model.provider,
                     success=False,
                     latency_ms=0,
                     tokens_used=0,
                 )
+                if self.cooldowns is not None:
+                    kind = await self.cooldowns.apply_from_error(
+                        model.name,
+                        status_code=exc.status_code,
+                        body=str(exc),
+                        headers=getattr(exc, "headers", None),
+                    )
+                    if kind is not None:
+                        events.record(
+                            f"cooldown [{kind}]",
+                            level="warn",
+                            model=model.name,
+                            provider=model.provider,
+                            error=str(exc),
+                            capability=capability,
+                        )
                 log.info(
                     "request fail",
                     extra={

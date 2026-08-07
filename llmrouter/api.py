@@ -49,8 +49,9 @@ async def lifespan(app: FastAPI):
         from dotenv import load_dotenv
 
         # Prefer process CWD (deploy/pm2), then repo root next to the package.
-        load_dotenv(Path.cwd() / ".env", override=False)
-        load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+        # override=True so a quoted .env URI wins over a broken/empty PM2 env.
+        load_dotenv(Path.cwd() / ".env", override=True)
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
     except ImportError:
         pass
 

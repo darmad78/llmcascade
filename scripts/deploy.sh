@@ -57,41 +57,62 @@ if [[ ! -x "$UVICORN_BIN" ]]; then
   exit 1
 fi
 
-# Merge .env under the current environment (do not clobber shell exports).
+# Merge .env under the current environment.
+# Shell/non-empty exports win. Uses python-dotenv so values with & ? # work
+# (bash `source`/eval breaks on unquoted mongodb+srv URIs).
 load_dotenv() {
   local file="$1"
+  local py="${VENV_DIR}/bin/python"
   [[ -f "$file" ]] || return 0
-  local line key
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line%$'\r'}"
-    [[ -z "${line//[[:space:]]/}" ]] && continue
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    if [[ "$line" =~ ^[[:space:]]*export[[:space:]]+ ]]; then
-      line="${line#*export}"
-      line="${line#"${line%%[![:space:]]*}"}"
-    fi
-    key="${line%%=*}"
-    key="${key%"${key##*[![:space:]]}"}"
-    key="${key#"${key%%[![:space:]]*}"}"
-    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    if [[ -n "${!key+x}" ]]; then
-      continue
-    fi
-    set -a
-    eval "$line"
-    set +a
-  done < "$file"
+  [[ -x "$py" ]] || py="$PYTHON_BIN"
+  # shellcheck disable=SC1090
+  eval "$(
+    "$py" - "$file" <<'PY'
+import os, shlex, sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    from dotenv import dotenv_values
+except ImportError:
+    # Minimal fallback: KEY=VALUE, strip optional quotes; skip if already set.
+    vals = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1]
+        vals[key] = val
+else:
+    vals = {k: v for k, v in dotenv_values(path).items() if k and v is not None}
+
+for key, val in vals.items():
+    if not key:
+        continue
+    # Prefer non-empty shell exports; allow .env to fill empty placeholders.
+    if os.environ.get(key):
+        continue
+    print(f"export {key}={shlex.quote(val)}")
+PY
+  )"
 }
 
 if [[ ! -f "$ROOT/.env" ]]; then
   echo "warn: $ROOT/.env missing — copy from .env.example and fill keys" >&2
 else
   load_dotenv "$ROOT/.env"
-  echo "info: loaded .env"
+  echo "info: loaded .env from $ROOT/.env"
 fi
 
 if [[ -z "${MONGODB_URI:-}" ]]; then
-  echo "warn: MONGODB_URI is not set (stats will stay disabled)" >&2
+  echo "warn: MONGODB_URI is not set after loading .env (stats will stay disabled)" >&2
+  echo "warn: put it in $ROOT/.env as MONGODB_URI='mongodb+srv://...'" >&2
 else
   echo "info: MONGODB_URI is set (${#MONGODB_URI} chars)"
 fi

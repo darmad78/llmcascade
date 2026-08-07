@@ -46,6 +46,8 @@ class StatsStore:
         self._totals = self._db["stats_totals"]
         self.configured = True
         self.detail = ""
+        # Strong refs so fire-and-forget tasks are not GC'd before they run.
+        self._pending: set[asyncio.Task[Any]] = set()
 
     @classmethod
     async def connect(cls, uri: str | None = None, db_name: str | None = None) -> StatsStore | None:
@@ -86,6 +88,9 @@ class StatsStore:
         await self._totals.create_index([("scope", 1), ("name", 1)], unique=True, name="scope_name")
 
     async def close(self) -> None:
+        if self._pending:
+            await asyncio.gather(*self._pending, return_exceptions=True)
+            self._pending.clear()
         self._client.close()
 
     def enqueue(
@@ -102,7 +107,7 @@ class StatsStore:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        loop.create_task(
+        task = loop.create_task(
             self.record(
                 model=model,
                 provider=provider,
@@ -111,6 +116,8 @@ class StatsStore:
                 tokens_used=tokens_used,
             )
         )
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
 
     async def record(
         self,
@@ -166,6 +173,17 @@ class StatsStore:
                 f"stats persist failed: {exc}",
                 extra={"model_used": model, "provider": provider, "success": success},
             )
+            try:
+                from llmrouter.event_log import events
+
+                events.record(
+                    f"stats persist failed: {exc}",
+                    level="error",
+                    model=model,
+                    provider=provider,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     @staticmethod
     def _row_metrics(doc: dict[str, Any]) -> dict[str, Any]:
