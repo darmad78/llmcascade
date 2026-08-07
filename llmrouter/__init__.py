@@ -3,6 +3,7 @@
 from llmrouter.adapters.base import LLMResponse
 from llmrouter.cascade import (
     GeminiCascadeManager,
+    ModelCooldownTracker,
     classify_failure,
     resolve_cascade_order,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "InMemoryBudgetStore",
     "LLMResponse",
     "ModelConfig",
+    "ModelCooldownTracker",
     "ModelSelector",
     "ProviderError",
     "QueueFullError",

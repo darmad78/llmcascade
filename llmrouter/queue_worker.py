@@ -9,7 +9,7 @@ import httpx
 from llmrouter.adapters import get_adapter
 from llmrouter.adapters.base import LLMResponse
 from llmrouter.adapters.gemini_adapter import GeminiAdapter
-from llmrouter.cascade import GeminiCascadeManager, cascade_manager_from_registry
+from llmrouter.cascade import GeminiCascadeManager, ModelCooldownTracker, cascade_manager_from_registry
 from llmrouter.event_log import events
 from llmrouter.exceptions import QueueFullError
 from llmrouter.health import health_cache
@@ -39,18 +39,28 @@ class RouterClient:
         max_queue: int = 100,
         rate_limiter: RateLimiter | None = None,
         gemini_cascade: GeminiCascadeManager | None = None,
+        cooldowns: ModelCooldownTracker | None = None,
         stats: StatsStore | NullStatsStore | None = None,
     ) -> None:
         self.registry = registry if registry is not None else load_registry(models_path)
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
+        self.cooldowns = cooldowns or ModelCooldownTracker()
         self.rate_limiter = rate_limiter or RateLimiter(
-            self.registry, gemini_cascade=self.gemini_cascade
+            self.registry,
+            gemini_cascade=self.gemini_cascade,
+            cooldowns=self.cooldowns,
         )
-        if rate_limiter is not None and self.gemini_cascade is not None:
-            self.rate_limiter.gemini_cascade = self.gemini_cascade
+        if rate_limiter is not None:
+            if self.gemini_cascade is not None:
+                self.rate_limiter.gemini_cascade = self.gemini_cascade
+            self.rate_limiter.cooldowns = self.cooldowns
         self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
         self.selector = ModelSelector(
-            self.registry, self.rate_limiter, strategy=strategy, stats=self.stats
+            self.registry,
+            self.rate_limiter,
+            strategy=strategy,
+            stats=self.stats,
+            cooldowns=self.cooldowns,
         )
         self._workers_n = workers
         self._max_queue = max_queue
@@ -143,6 +153,7 @@ class RouterClient:
         }
         if self.gemini_cascade is not None:
             out["gemini_cascade"] = await self.gemini_cascade.status()
+        out["model_cooldowns"] = await self.cooldowns.status()
         return out
 
     async def gemini_status(self) -> dict[str, Any]:
@@ -170,6 +181,9 @@ class RouterClient:
             health = {}
             events.record(f"health probe failed: {exc}", level="error")
         next_model = await self.selector.peek("chat", tokens_estimate=1)
+        cooling = budgets.get("model_cooldowns") or {}
+        if not isinstance(cooling, dict):
+            cooling = {}
         models = []
         for m in self.registry:
             budget = budgets.get(m.name, {})
@@ -187,6 +201,7 @@ class RouterClient:
                 "requests_total": snap["requests_total"].get(m.name, 0),
                 "failures_total": snap["failures_total"].get(m.name, 0),
                 "health": health.get(m.name, {"state": "unknown"}),
+                "cooldown": cooling.get(m.name),
             }
             if m.cascade:
                 entry["cascade"] = list(m.cascade)

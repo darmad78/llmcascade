@@ -14,12 +14,14 @@ class ProviderError(Exception):
         retryable: bool = False,
         provider: str | None = None,
         model: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.retryable = retryable
         self.provider = provider
         self.model = model
+        self.headers = {k.lower(): v for k, v in (headers or {}).items()}
 
 
 class AllModelsExhaustedError(Exception):

@@ -45,6 +45,7 @@ class BaseAdapter(ABC):
             retryable=retryable,
             provider=self.model.provider,
             model=self.model.name,
+            headers=dict(resp.headers),
         )
 
     @abstractmethod

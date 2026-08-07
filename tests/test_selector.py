@@ -5,6 +5,7 @@ from llmrouter.exceptions import AllModelsExhaustedError, ProviderError
 from llmrouter.rate_limiter import RateLimiter
 from llmrouter.registry import Limits, ModelConfig
 from llmrouter.selector import ModelSelector
+from datetime import datetime, timezone
 
 
 def _m(name: str, priority: int = 1) -> ModelConfig:
@@ -98,3 +99,60 @@ async def test_budget_excludes_model():
     picked = await sel.pick("chat", tokens_estimate=1)
     assert picked is not None
     assert picked.name == "ok"
+
+
+@pytest.mark.asyncio
+async def test_credit_cooldown_skips_model_on_next_pick():
+    from llmrouter.cascade import ModelCooldownTracker
+
+    models = [_m("a"), _m("b")]
+    cool = ModelCooldownTracker()
+    lim = RateLimiter(models, cooldowns=cool)
+    sel = ModelSelector(models, lim, cooldowns=cool)
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        if model.name == "a":
+            raise ProviderError(
+                "deepseek HTTP 402: Insufficient Balance",
+                status_code=402,
+                retryable=False,
+                model="a",
+            )
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback("hi", "chat", executor)
+    assert resp.model == "b"
+    assert await cool.is_cooling("a")
+    assert not await lim.can_proceed("a", 1)
+    picked = await sel.pick("chat")
+    assert picked is not None
+    assert picked.name == "b"
+
+
+@pytest.mark.asyncio
+async def test_rate_cooldown_learns_retry_after():
+    from llmrouter.cascade import ModelCooldownTracker
+
+    models = [_m("a"), _m("b")]
+    cool = ModelCooldownTracker()
+    lim = RateLimiter(models, cooldowns=cool)
+    sel = ModelSelector(models, lim, cooldowns=cool)
+
+    async def executor(model, prompt):
+        if model.name == "a":
+            raise ProviderError(
+                "sambanova HTTP 429: Rate limit exceeded",
+                status_code=429,
+                retryable=False,
+                model="a",
+                headers={"Retry-After": "120"},
+            )
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    await sel.dispatch_with_fallback("hi", "chat", executor)
+    until = await cool.available_at("a")
+    assert until is not None
+    remaining = (until - datetime.now(timezone.utc)).total_seconds()
+    assert 100 <= remaining <= 120

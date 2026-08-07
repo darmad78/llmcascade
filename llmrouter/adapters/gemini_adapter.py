@@ -61,6 +61,7 @@ class GeminiAdapter(BaseAdapter):
                 retryable=resp.status_code >= 500 or resp.status_code == 408,
                 provider=self.model.provider,
                 model=model_id,
+                headers=dict(resp.headers),
             )
         data = resp.json()
         try:

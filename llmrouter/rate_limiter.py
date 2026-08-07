@@ -46,11 +46,13 @@ class RateLimiter:
         store: BudgetStore | None = None,
         *,
         gemini_cascade: Any | None = None,
+        cooldowns: Any | None = None,
     ) -> None:
         self._models = {m.name: m for m in models}
         self._store = store or InMemoryBudgetStore()
         self._locks: dict[str, asyncio.Lock] = {m.name: asyncio.Lock() for m in models}
         self.gemini_cascade = gemini_cascade
+        self.cooldowns = cooldowns
 
     def _lock(self, model_name: str) -> asyncio.Lock:
         if model_name not in self._locks:
@@ -66,6 +68,8 @@ class RateLimiter:
     async def can_proceed(self, model_name: str, tokens_estimate: int) -> bool:
         model = self._models.get(model_name)
         if model is None:
+            return False
+        if self.cooldowns is not None and await self.cooldowns.is_cooling(model_name):
             return False
         # Gemini family: ineligible while every cascade member is cooling.
         cascade = self.gemini_cascade

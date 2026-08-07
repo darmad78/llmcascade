@@ -22,6 +22,13 @@ def test_classify_daily():
     assert classify_failure(429, "PerDay quota exceeded") == "daily"
     assert classify_failure(429, "daily quota limit") == "daily"
     assert classify_failure(403, "limit:0") == "daily"
+    assert classify_failure(429, "Rate limit exceeded: free-models-per-day") == "daily"
+
+
+def test_classify_credit():
+    assert classify_failure(402, "Insufficient Balance") == "credit"
+    assert classify_failure(402, '{"error":{"type":"credit_limit"}}') == "credit"
+    assert classify_failure(400, "Credit limit exceeded, please add credits") == "credit"
 
 
 def test_classify_rate():
@@ -46,9 +53,25 @@ def test_cooldown_durations():
     assert rate == now + timedelta(seconds=60)
     perm = cooldown_until("permanent", now=now)
     assert perm == now + timedelta(days=365)
+    credit = cooldown_until("credit", now=now)
+    assert credit == now + timedelta(hours=24)
     daily = cooldown_until("daily", now=now)
     assert daily is not None
     assert daily > now
+
+
+def test_cooldown_learns_retry_after():
+    now = datetime(2026, 8, 6, 20, 0, tzinfo=timezone.utc)
+    until = cooldown_until("rate", now=now, headers={"Retry-After": "90"})
+    assert until == now + timedelta(seconds=90)
+
+
+def test_cooldown_learns_ratelimit_reset_ms():
+    now = datetime(2026, 8, 6, 20, 0, tzinfo=timezone.utc)
+    reset_ms = int((now + timedelta(hours=2)).timestamp() * 1000)
+    until = cooldown_until("daily", now=now, headers={"X-RateLimit-Reset": str(reset_ms)})
+    assert until is not None
+    assert abs((until - now).total_seconds() - 7200) < 2
 
 
 def test_thinking_budget_flag():

@@ -53,34 +53,34 @@ models:
     capabilities: [chat]
     priority: 30
 
-  - name: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  - name: meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
     provider: together
     endpoint: https://api.together.xyz/v1/chat/completions
     auth_env_var: TOGETHER_API_KEY
-    free_tier_verified: false
-    free_tier_note: "Together free tier not published as fixed RPD — counters unverified"
+    free_tier_verified: true
+    free_tier_note: "Together free endpoint · Llama-3.3-70B-Instruct-Turbo-Free · reduced RPM"
     limits:
       rpd: 100
-      rpm: 60
-      rps: 2
+      rpm: 10
+      rps: 1
       tpm: 60000
-      max_context: 128000
+      max_context: 8192
     capabilities: [chat]
     priority: 40
 
-  # Cerebras free: llama3.1-8b — 30 RPM · ~60K TPM · 14,400 RPD · ~1M TPD.
-  - name: llama3.1-8b
+  # Cerebras free production: gpt-oss-120b (llama3.1-8b removed from public catalog).
+  - name: gpt-oss-120b
     provider: cerebras
     endpoint: https://api.cerebras.ai/v1/chat/completions
     auth_env_var: CEREBRAS_API_KEY
     free_tier_verified: true
-    free_tier_note: "Cerebras free · llama3.1-8b · 14,400 RPD · 30 RPM · 60K TPM"
+    free_tier_note: "Cerebras free · gpt-oss-120b · ~1M TPD · RPM/TPM vary by tier"
     limits:
       rpd: 14400
       rpm: 30
       rps: 1
       tpm: 60000
-      max_context: 8192
+      max_context: 65536
     capabilities: [chat]
     priority: 50
 
