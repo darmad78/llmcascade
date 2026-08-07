@@ -216,9 +216,7 @@
     </div>
   </div>
   <main>
-    <div class="banner" id="mongo-banner" hidden>
-      MongoDB not configured. Set <code>MONGODB_URI</code> and restart to persist historical stats.
-    </div>
+    <div class="banner" id="mongo-banner" hidden></div>
     <section class="kpi-row" id="kpis">
       <div class="kpi"><div class="label">Requests</div><div class="value" id="kpi-req">—</div></div>
       <div class="kpi"><div class="label">Failures</div><div class="value" id="kpi-fail">—</div></div>
@@ -480,6 +478,10 @@
       if (!res.ok) throw new Error(`stats ${res.status}`);
       const data = await res.json();
       $("mongo-banner").hidden = !!data.configured;
+      if (!data.configured) {
+        const detail = data.detail || "Set MONGODB_URI to enable historical stats";
+        $("mongo-banner").innerHTML = escapeHtml(detail);
+      }
       $("meta").textContent = data.configured
         ? `range ${data.range} · mongo ok · ${new Date().toLocaleTimeString()}`
         : `range ${data.range} · mongo off · ${new Date().toLocaleTimeString()}`;

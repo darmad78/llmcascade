@@ -49,8 +49,10 @@ def test_pivot_series_rolls_provider():
 
 
 async def test_null_stats_store():
-    store = NullStatsStore()
+    store = NullStatsStore(detail="no uri")
+    store.enqueue(model="m", provider="p", success=True)
     await store.record(model="m", provider="p", success=True)
     snap = await store.snapshot("7d")
     assert snap["configured"] is False
     assert snap["totals"]["models"] == []
+    assert snap["detail"] == "no uri"

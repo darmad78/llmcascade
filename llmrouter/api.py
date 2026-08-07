@@ -44,14 +44,27 @@ class CompleteRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _client, _stats
+    # Load project .env so MONGODB_URI / provider keys work without manual `source`.
+    try:
+        from dotenv import load_dotenv
+
+        # Prefer process CWD (deploy/pm2), then repo root next to the package.
+        load_dotenv(Path.cwd() / ".env", override=False)
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+    except ImportError:
+        pass
+
     models_path = Path(__file__).resolve().parent / "models.yaml"
     try:
         _stats = await StatsStore.connect()
     except Exception as exc:  # noqa: BLE001
-        events.record(f"mongodb stats unavailable: {exc}", level="error")
-        _stats = NullStatsStore()
+        detail = f"MongoDB connect failed: {exc}"
+        events.record(detail, level="error")
+        _stats = NullStatsStore(detail=detail)
     if _stats is None:
-        _stats = NullStatsStore()
+        _stats = NullStatsStore(
+            detail="MONGODB_URI is empty — add it to .env and restart"
+        )
     _client = RouterClient(models_path=str(models_path), stats=_stats)
     await _client.start()
     events.record(

@@ -115,7 +115,7 @@ class ModelSelector:
                 used = resp.tokens_used or tokens_est
                 await self.rate_limiter.record_usage(model.name, used)
                 metrics.record_success(model.name)
-                await self.stats.record(
+                self.stats.enqueue(
                     model=model.name,
                     provider=model.provider,
                     success=True,
@@ -147,7 +147,7 @@ class ModelSelector:
             except ProviderError as exc:
                 last_err = exc
                 metrics.record_failure(model.name)
-                await self.stats.record(
+                self.stats.enqueue(
                     model=model.name,
                     provider=model.provider,
                     success=False,

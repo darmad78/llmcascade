@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -44,6 +45,7 @@ class StatsStore:
         self._buckets = self._db["stats_buckets"]
         self._totals = self._db["stats_totals"]
         self.configured = True
+        self.detail = ""
 
     @classmethod
     async def connect(cls, uri: str | None = None, db_name: str | None = None) -> StatsStore | None:
@@ -65,9 +67,12 @@ class StatsStore:
             serverSelectionTimeoutMS=_DEFAULT_SERVER_SELECTION_MS,
         )
         store = cls(client, db_name)
-        await store.ensure_indexes()
-        # Fail fast if URI is wrong
-        await client.admin.command("ping")
+        try:
+            await client.admin.command("ping")
+            await store.ensure_indexes()
+        except Exception:
+            client.close()
+            raise
         log.info("mongodb stats connected", extra={"provider": "mongodb", "capability": "stats"})
         return store
 
@@ -82,6 +87,30 @@ class StatsStore:
 
     async def close(self) -> None:
         self._client.close()
+
+    def enqueue(
+        self,
+        *,
+        model: str,
+        provider: str,
+        success: bool,
+        latency_ms: float = 0.0,
+        tokens_used: int = 0,
+    ) -> None:
+        """Fire-and-forget so Mongo latency never blocks completions/chat."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(
+            self.record(
+                model=model,
+                provider=provider,
+                success=success,
+                latency_ms=latency_ms,
+                tokens_used=tokens_used,
+            )
+        )
 
     async def record(
         self,
@@ -242,7 +271,6 @@ class StatsStore:
                 "provider": provider,
                 **metrics,
             }
-            # roll provider within bucket
             prev = entry["by_provider"].get(provider)
             if prev is None:
                 entry["by_provider"][provider] = {
@@ -264,7 +292,6 @@ class StatsStore:
         out: list[dict[str, Any]] = []
         for bucket in sorted(by_bucket):
             entry = by_bucket[bucket]
-            # finalize provider avg/success
             finalized: dict[str, Any] = {}
             for name, raw in entry["by_provider"].items():
                 req = raw["requests"]
@@ -284,9 +311,15 @@ class StatsStore:
 
 
 class NullStatsStore:
-    """No-op when MONGODB_URI is unset."""
+    """No-op when MONGODB_URI is unset or connect failed."""
 
     configured = False
+
+    def __init__(self, detail: str = "Set MONGODB_URI to enable historical stats") -> None:
+        self.detail = detail
+
+    def enqueue(self, **_kwargs: Any) -> None:
+        return None
 
     async def record(self, **_kwargs: Any) -> None:
         return None
@@ -298,7 +331,7 @@ class NullStatsStore:
             "totals": {"models": [], "providers": []},
             "series": {"hourly": [], "daily": []},
             "performance": {"models": [], "providers": []},
-            "detail": "Set MONGODB_URI to enable historical stats",
+            "detail": self.detail,
         }
 
     async def close(self) -> None:
