@@ -157,7 +157,9 @@ class ModelSelector:
                     latency_ms=0,
                     tokens_used=0,
                 )
-                if self.cooldowns is not None:
+                if self.cooldowns is not None and model.provider != "gemini":
+                    # Gemini cascade owns per-member cooldowns; do not pin the logical
+                    # family name to permanent from cascade-exhausted status codes.
                     kind = await self.cooldowns.apply_from_error(
                         model.name,
                         status_code=exc.status_code,

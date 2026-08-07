@@ -146,7 +146,6 @@ class StatsStore:
                     {
                         "$inc": inc,
                         "$max": {"latency_max_ms": max_lat},
-                        "$setOnInsert": {"provider": provider},
                         "$set": {"provider": provider},
                     },
                     upsert=True,
