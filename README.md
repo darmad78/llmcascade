@@ -291,11 +291,11 @@ Gemini is a **provider family**, not a single model row. `models.yaml` has one l
 | Kind | Trigger | Cooldown |
 |------|---------|----------|
 | `daily` | PerDay / daily quota / `limit:0` | Until next `America/Los_Angeles` midnight |
-| `rate` | 429, 5xx, timeout | +10 minutes |
+| `rate` | 429, 5xx, timeout | +60 seconds (rolling RPM/TPM window) |
 | `permanent` | 404 / not supported | +365 days |
 | `transient` | other 4xx | No cooldown; try next cascade member |
 
-Shared quota text (`exceeded your current quota`, plan+billing) cools **all** cascade members together.
+Cooldowns are **per cascade model ID only** — exhausting one Gemini model does not cool siblings.
 
 **Default when every member is cooling:** do **not** wait — mark the Gemini family ineligible and fall through to other free providers. Optional `wait_for_gemini=True` on `submit` / complete params waits in ~15s chunks until the earliest cooldown ends.
 

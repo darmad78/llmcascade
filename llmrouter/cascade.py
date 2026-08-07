@@ -20,7 +20,8 @@ from llmrouter.registry import ModelConfig
 FailureKind = Literal["daily", "rate", "permanent", "transient"]
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-RATE_COOLDOWN = timedelta(minutes=10)
+# Gemini free RPM/TPM is a rolling ~60s window; retry after that, not 10m.
+RATE_COOLDOWN = timedelta(seconds=60)
 PERMANENT_COOLDOWN = timedelta(days=365)
 WAIT_CHUNK_S = 15.0
 MIN_TEXT_LEN = 1
@@ -54,15 +55,6 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
     if status_code is None or (status_code is not None and status_code >= 500):
         return "rate"
     return "transient"
-
-
-def is_shared_quota(body: str = "") -> bool:
-    text = (body or "").lower()
-    if "exceeded your current quota" in text:
-        return True
-    if "plan" in text and "billing" in text:
-        return True
-    return False
 
 
 def cooldown_until(kind: FailureKind, *, now: datetime | None = None) -> datetime | None:
@@ -170,20 +162,14 @@ class GeminiCascadeManager:
         body: str = "",
         now: datetime | None = None,
     ) -> None:
+        # Quotas are per model ID — never fan out to siblings. `body` kept for call-site compat.
         until = cooldown_until(kind, now=now)
         if until is None:
             return
-        shared = is_shared_quota(body)
         async with self._lock:
-            if shared:
-                for m in self.models:
-                    prev = self._cooldowns.get(m)
-                    if prev is None or until > prev:
-                        self._cooldowns[m] = until
-            else:
-                prev = self._cooldowns.get(model_id)
-                if prev is None or until > prev:
-                    self._cooldowns[model_id] = until
+            prev = self._cooldowns.get(model_id)
+            if prev is None or until > prev:
+                self._cooldowns[model_id] = until
 
     async def status(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)

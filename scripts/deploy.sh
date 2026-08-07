@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Full production deploy for the PM2 llmrouter process.
+#
+# - git pull (unless DEPLOY_SKIP_PULL=1)
+# - pip install -e '.[api]' into .venv
+# - load repo .env (shell-exported vars win)
+# - recreate PM2 app so env is fully applied
+# - pm2 save
+#
+# Usage (on the server):
+#   ./scripts/deploy.sh
+#   MONGODB_URI='mongodb+srv://...' ./scripts/deploy.sh
+#
+# Optional:
+#   DEPLOY_SKIP_PULL=1     skip git pull
+#   PM2_APP_NAME=llmrouter
+#   UVICORN_HOST=0.0.0.0 UVICORN_PORT=12000
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+APP_NAME="${PM2_APP_NAME:-llmrouter}"
+HOST="${UVICORN_HOST:-0.0.0.0}"
+PORT="${UVICORN_PORT:-12000}"
+PYTHON_BIN="${PYTHON_BIN:-python3.11}"
+VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
+UVICORN_BIN="${UVICORN_BIN:-$VENV_DIR/bin/uvicorn}"
+PIP_BIN="${PIP_BIN:-$VENV_DIR/bin/pip}"
+
+if ! command -v pm2 >/dev/null 2>&1; then
+  echo "error: pm2 not found on PATH" >&2
+  exit 1
+fi
+
+if [[ "${DEPLOY_SKIP_PULL:-0}" != "1" ]]; then
+  if [[ -d "$ROOT/.git" ]]; then
+    echo "info: git pull"
+    git pull --ff-only
+  else
+    echo "warn: not a git checkout — skipping pull" >&2
+  fi
+else
+  echo "info: skipping git pull (DEPLOY_SKIP_PULL=1)"
+fi
+
+if [[ ! -x "$PIP_BIN" ]]; then
+  echo "info: creating venv at $VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
+
+echo "info: pip install -e '.[api]'"
+"$PIP_BIN" install -e '.[api]'
+
+if [[ ! -x "$UVICORN_BIN" ]]; then
+  echo "error: uvicorn missing after install ($UVICORN_BIN)" >&2
+  exit 1
+fi
+
+# Merge .env under the current environment (do not clobber shell exports).
+load_dotenv() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local line key
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "${line//[[:space:]]/}" ]] && continue
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*export[[:space:]]+ ]]; then
+      line="${line#*export}"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+    key="${line%%=*}"
+    key="${key%"${key##*[![:space:]]}"}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    if [[ -n "${!key+x}" ]]; then
+      continue
+    fi
+    set -a
+    eval "$line"
+    set +a
+  done < "$file"
+}
+
+if [[ ! -f "$ROOT/.env" ]]; then
+  echo "warn: $ROOT/.env missing — copy from .env.example and fill keys" >&2
+else
+  load_dotenv "$ROOT/.env"
+  echo "info: loaded .env"
+fi
+
+if [[ -z "${MONGODB_URI:-}" ]]; then
+  echo "warn: MONGODB_URI is not set (stats will stay disabled)" >&2
+else
+  echo "info: MONGODB_URI is set (${#MONGODB_URI} chars)"
+fi
+
+if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+  echo "info: deleting existing PM2 app '$APP_NAME'"
+  pm2 delete "$APP_NAME"
+fi
+
+echo "info: starting PM2 app '$APP_NAME' (host=$HOST port=$PORT)"
+pm2 start "$UVICORN_BIN" \
+  --name "$APP_NAME" \
+  --interpreter none \
+  --cwd "$ROOT" \
+  -- \
+  llmrouter.api:app --host "$HOST" --port "$PORT"
+
+pm2 save
+pm2 show "$APP_NAME" | sed -n '1,40p'
+echo "ok: deploy complete — $APP_NAME is up"

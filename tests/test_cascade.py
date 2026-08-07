@@ -9,7 +9,6 @@ from llmrouter.cascade import (
     GeminiCascadeManager,
     classify_failure,
     cooldown_until,
-    is_shared_quota,
     needs_thinking_budget_zero,
     resolve_cascade_order,
 )
@@ -40,17 +39,11 @@ def test_classify_transient():
     assert classify_failure(400, "bad request") == "transient"
 
 
-def test_shared_quota():
-    assert is_shared_quota("You exceeded your current quota")
-    assert is_shared_quota("check your plan and billing details")
-    assert not is_shared_quota("rate limit rpm")
-
-
 def test_cooldown_durations():
     now = datetime(2026, 8, 6, 20, 0, tzinfo=timezone.utc)
     assert cooldown_until("transient", now=now) is None
     rate = cooldown_until("rate", now=now)
-    assert rate == now + timedelta(minutes=10)
+    assert rate == now + timedelta(seconds=60)
     perm = cooldown_until("permanent", now=now)
     assert perm == now + timedelta(days=365)
     daily = cooldown_until("daily", now=now)
@@ -72,7 +65,7 @@ def test_resolve_cascade_prefers_env(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_shared_quota_cools_all():
+async def test_quota_cools_only_failed_model():
     mgr = GeminiCascadeManager(["a", "b", "c"])
     await mgr.apply_cooldown(
         "a",
@@ -80,9 +73,9 @@ async def test_shared_quota_cools_all():
         body="You exceeded your current quota for this project",
     )
     assert await mgr.is_cooling("a")
-    assert await mgr.is_cooling("b")
-    assert await mgr.is_cooling("c")
-    assert not await mgr.any_available()
+    assert not await mgr.is_cooling("b")
+    assert not await mgr.is_cooling("c")
+    assert await mgr.any_available()
 
 
 @pytest.mark.asyncio
@@ -188,7 +181,8 @@ async def test_rate_limiter_blocks_cooling_family():
     ]
     mgr = GeminiCascadeManager(["a", "b"])
     mgr.bind_logical("gemini")
-    await mgr.apply_cooldown("a", "rate", body="exceeded your current quota")
+    await mgr.apply_cooldown("a", "rate", body="429")
+    await mgr.apply_cooldown("b", "rate", body="429")
     lim = RateLimiter(models, gemini_cascade=mgr)
     assert not await lim.can_proceed("gemini", 1)
     assert await lim.can_proceed("other", 1)
