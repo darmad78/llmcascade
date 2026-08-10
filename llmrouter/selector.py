@@ -98,11 +98,15 @@ class ModelSelector:
         prompt: str,
         capability: str,
         executor: Executor,
+        *,
+        notes: str | None = None,
         **_params: Any,
     ) -> LLMResponse:
         tokens_est = estimate_tokens(prompt)
         tried: set[str] = set()
         last_err: Exception | None = None
+        note = (notes or "").strip() or None
+        note_detail = {"notes": note} if note else {}
 
         while True:
             model = await self.pick(capability, tokens_est)
@@ -124,6 +128,7 @@ class ModelSelector:
                     success=True,
                     latency_ms=resp.latency_ms,
                     tokens_used=used,
+                    notes=note,
                 )
                 log.info(
                     "request ok",
@@ -134,6 +139,7 @@ class ModelSelector:
                         "tokens_used": used,
                         "provider": model.provider,
                         "capability": capability,
+                        **note_detail,
                     },
                 )
                 events.record(
@@ -145,6 +151,7 @@ class ModelSelector:
                     latency_ms=resp.latency_ms,
                     tokens_used=used,
                     capability=capability,
+                    **note_detail,
                 )
                 return resp
             except ProviderError as exc:
@@ -156,6 +163,7 @@ class ModelSelector:
                     success=False,
                     latency_ms=0,
                     tokens_used=0,
+                    notes=note,
                 )
                 if self.cooldowns is not None and model.provider != "gemini":
                     # Gemini cascade owns per-member cooldowns; do not pin the logical
@@ -174,6 +182,7 @@ class ModelSelector:
                             provider=model.provider,
                             error=str(exc),
                             capability=capability,
+                            **note_detail,
                         )
                 log.info(
                     "request fail",
@@ -184,6 +193,7 @@ class ModelSelector:
                         "tokens_used": 0,
                         "provider": model.provider,
                         "capability": capability,
+                        **note_detail,
                     },
                 )
                 events.record(
@@ -194,6 +204,7 @@ class ModelSelector:
                     success=False,
                     error=str(exc),
                     capability=capability,
+                    **note_detail,
                 )
                 continue
 
@@ -201,5 +212,5 @@ class ModelSelector:
             f"no free-tier model succeeded for capability={capability!r}"
             + (f"; last error: {last_err}" if last_err else "")
         )
-        events.record(msg, level="error", capability=capability)
+        events.record(msg, level="error", capability=capability, **note_detail)
         raise AllModelsExhaustedError(msg)

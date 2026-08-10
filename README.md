@@ -13,6 +13,8 @@ Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP lay
 - Async queue + worker pool with backpressure (`QueueFullError`)
 - Structured JSON request logs (metadata only) + in-memory metrics
 - Status dashboard (`/dashboard`) with per-model health, budgets, event/error logs
+- Optional free-text `notes` on completions (event log + stats grouping by source)
+- Historical stats UI (`/stats`) with MongoDB persistence when `MONGODB_URI` is set
 - Optional `POST /v1/complete` HTTP API
 
 ## Supported providers
@@ -78,16 +80,15 @@ import httpx
 
 BASE = "https://llmrouter.conceptgame.co.uk"
 
-def complete(prompt: str, capability: str = "chat", **params) -> dict:
-    r = httpx.post(
-        f"{BASE}/v1/complete",
-        json={"prompt": prompt, "capability": capability, "params": params},
-        timeout=120.0,
-    )
+def complete(prompt: str, capability: str = "chat", notes: str | None = None, **params) -> dict:
+    body = {"prompt": prompt, "capability": capability, "params": params}
+    if notes:
+        body["notes"] = notes  # e.g. "app" / "system" — shown in event log + stats
+    r = httpx.post(f"{BASE}/v1/complete", json=body, timeout=120.0)
     r.raise_for_status()
     return r.json()  # text, model, tokens_used, latency_ms, raw
 
-data = complete("Say hi in one sentence.")
+data = complete("Say hi in one sentence.", notes="app")
 print(data["model"], data["latency_ms"], data["text"])
 ```
 
@@ -99,19 +100,19 @@ import asyncio
 
 BASE = "https://llmrouter.conceptgame.co.uk"
 
-async def complete(prompt: str, capability: str = "chat", **params) -> dict:
+async def complete(prompt: str, capability: str = "chat", notes: str | None = None, **params) -> dict:
+    body = {"prompt": prompt, "capability": capability, "params": params}
+    if notes:
+        body["notes"] = notes
     async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(
-            f"{BASE}/v1/complete",
-            json={"prompt": prompt, "capability": capability, "params": params},
-        )
+        r = await client.post(f"{BASE}/v1/complete", json=body)
         r.raise_for_status()
         return r.json()
 
-asyncio.run(complete("Ping"))
+asyncio.run(complete("Ping", notes="system"))
 ```
 
-Useful GETs: `/v1/status`, `/v1/metrics`, `/v1/health`, `/v1/status/gemini`.  
+Useful GETs: `/v1/status`, `/v1/metrics`, `/v1/health`, `/v1/status/gemini`, `/v1/stats`, `/v1/events`.  
 `502` means the router exhausted eligible models (or a provider error bubbled up).
 
 ### B. In-process library (`RouterClient`)
@@ -126,7 +127,11 @@ async def main():
     client = RouterClient()  # loads packaged models.yaml
     await client.start()
     try:
-        resp = await client.submit("Summarize free-tier LLM routing.", capability="chat")
+        resp = await client.submit(
+            "Summarize free-tier LLM routing.",
+            capability="chat",
+            notes="app",
+        )
         print(resp.model, resp.latency_ms, resp.text)
     finally:
         await client.shutdown()
@@ -252,22 +257,26 @@ DNS: Cloudflare `A` record `llmrouter` → origin IP (proxied). Reload nginx aft
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/complete` | Body: `{ "prompt", "capability"?, "params"? }` → `LLMResponse` |
+| `POST` | `/v1/complete` | Body: `{ "prompt", "capability"?, "params"?, "notes"? }` → `LLMResponse` |
 | `GET` | `/v1/status` | Remaining budget per model + `gemini_cascade` snapshot |
 | `GET` | `/v1/status/gemini` | Per-cascade-model `available` / `available_at` |
 | `GET` | `/v1/metrics` | `requests_total`, `failures_total`, `current_budget` |
+| `GET` | `/v1/stats` | Historical counters (`?range=24h\|7d\|30d`); groups by model, provider, notes |
 | `GET` | `/v1/health` | Live provider reachability (cached ~30s; `?force=true` to refresh) |
-| `GET` | `/v1/events` | In-memory event ring buffer |
+| `GET` | `/v1/events` | In-memory event ring buffer (includes `detail.notes` when set) |
 | `GET` | `/v1/errors` | Errors-only ring buffer |
 | `GET` | `/v1/dashboard` | Combined JSON for the UI |
-| `GET` | `/dashboard` | Status UI |
+| `GET` | `/dashboard` | Status UI (event log shows notes when present) |
+| `GET` | `/stats` | Stats UI (charts/tables including by-notes grouping) |
+
+Optional `notes` is free text (e.g. `"app"`, `"system"`). It is logged on request events, never forwarded to providers, and rolled into Mongo stats under `(none)` when omitted.
 
 Example:
 
 ```bash
 curl -s https://llmrouter.conceptgame.co.uk/v1/complete \
   -H 'content-type: application/json' \
-  -d '{"prompt":"Hello","capability":"chat"}'
+  -d '{"prompt":"Hello","capability":"chat","notes":"app"}'
 # local: http://localhost:12000/v1/complete
 ```
 

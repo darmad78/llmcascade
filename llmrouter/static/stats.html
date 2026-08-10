@@ -240,6 +240,14 @@
         <h2>Model performance (avg latency)</h2>
         <div class="chart-wrap"><canvas id="chart-perf"></canvas></div>
       </div>
+      <div class="panel">
+        <h2>Hourly requests by notes</h2>
+        <div class="chart-wrap"><canvas id="chart-hourly-notes"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Notes usage share</h2>
+        <div class="chart-wrap"><canvas id="chart-notes-usage"></canvas></div>
+      </div>
     </section>
     <section class="panel">
       <h2>All-time by model</h2>
@@ -277,6 +285,25 @@
             </tr>
           </thead>
           <tbody id="provider-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>All-time by notes</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Notes</th>
+              <th>Requests</th>
+              <th>Failures</th>
+              <th>Success</th>
+              <th>Avg ms</th>
+              <th>Max ms</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="notes-rows"></tbody>
         </table>
       </div>
     </section>
@@ -375,9 +402,9 @@
     function seriesDatasets(series, key) {
       const labels = series.map((s) => {
         const d = new Date(s.bucket);
-        return key === "by_model"
-          ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" })
-          : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return key === "by_provider"
+          ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+          : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" });
       });
       const names = new Set();
       for (const s of series) {
@@ -400,6 +427,7 @@
     function renderTables(data) {
       const models = data.totals.models || [];
       const providers = data.totals.providers || [];
+      const notes = data.totals.notes || [];
       $("model-rows").innerHTML = models.length
         ? models.map((m) => `
           <tr>
@@ -423,6 +451,18 @@
             <td class="num">${p.avg_latency_ms.toFixed(0)}</td>
             <td class="num">${p.max_latency_ms.toFixed(0)}</td>
             <td class="num">${fmtNum(p.tokens_sum)}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
+      $("notes-rows").innerHTML = notes.length
+        ? notes.map((n) => `
+          <tr>
+            <td class="name">${escapeHtml(n.name)}</td>
+            <td class="num">${fmtNum(n.requests)}</td>
+            <td class="num">${fmtNum(n.failures)}</td>
+            <td class="num">${pct(n.success_rate)}</td>
+            <td class="num">${n.avg_latency_ms.toFixed(0)}</td>
+            <td class="num">${n.max_latency_ms.toFixed(0)}</td>
+            <td class="num">${fmtNum(n.tokens_sum)}</td>
           </tr>`).join("")
         : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
     }
@@ -462,6 +502,18 @@
         perf.map((m) => m.name),
         perf.map((m) => m.avg_latency_ms),
         "avg latency ms",
+      );
+
+      const hourlyNotes = seriesDatasets(data.series.hourly || [], "by_notes");
+      destroyChart("hourlyNotes");
+      charts.hourlyNotes = stackedLine($("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets);
+
+      const notesPerf = data.performance.notes || data.totals.notes || [];
+      destroyChart("notesUsage");
+      charts.notesUsage = doughnut(
+        $("chart-notes-usage"),
+        notesPerf.map((n) => n.name),
+        notesPerf.map((n) => n.requests),
       );
     }
 

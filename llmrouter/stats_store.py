@@ -25,6 +25,12 @@ def floor_day(dt: datetime) -> datetime:
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def notes_key(notes: str | None) -> str:
+    """Normalize free-text notes for stats grouping."""
+    n = (notes or "").strip()
+    return n if n else "(none)"
+
+
 def _parse_range(range_key: str) -> tuple[timedelta, timedelta]:
     """Return (hourly_lookback, daily_lookback)."""
     key = (range_key or "7d").strip().lower()
@@ -101,6 +107,7 @@ class StatsStore:
         success: bool,
         latency_ms: float = 0.0,
         tokens_used: int = 0,
+        notes: str | None = None,
     ) -> None:
         """Fire-and-forget so Mongo latency never blocks completions/chat."""
         try:
@@ -114,6 +121,7 @@ class StatsStore:
                 success=success,
                 latency_ms=latency_ms,
                 tokens_used=tokens_used,
+                notes=notes,
             )
         )
         self._pending.add(task)
@@ -127,11 +135,13 @@ class StatsStore:
         success: bool,
         latency_ms: float = 0.0,
         tokens_used: int = 0,
+        notes: str | None = None,
         at: datetime | None = None,
     ) -> None:
         now = at or datetime.now(timezone.utc)
         hour = floor_hour(now)
         day = floor_day(now)
+        note = notes_key(notes)
         inc = {
             "requests": 1,
             "failures": 0 if success else 1,
@@ -150,6 +160,15 @@ class StatsStore:
                     },
                     upsert=True,
                 )
+                await self._buckets.update_one(
+                    {"grain": grain, "bucket": bucket, "model": f"__note__:{note}"},
+                    {
+                        "$inc": inc,
+                        "$max": {"latency_max_ms": max_lat},
+                        "$set": {"kind": "notes", "notes": note, "provider": ""},
+                    },
+                    upsert=True,
+                )
             await self._totals.update_one(
                 {"scope": "model", "name": model},
                 {
@@ -161,6 +180,14 @@ class StatsStore:
             )
             await self._totals.update_one(
                 {"scope": "provider", "name": provider},
+                {
+                    "$inc": inc,
+                    "$max": {"latency_max_ms": max_lat},
+                },
+                upsert=True,
+            )
+            await self._totals.update_one(
+                {"scope": "notes", "name": note},
                 {
                     "$inc": inc,
                     "$max": {"latency_max_ms": max_lat},
@@ -210,6 +237,7 @@ class StatsStore:
         totals_raw = await self._totals.find({}).to_list(length=500)
         models: list[dict[str, Any]] = []
         providers: list[dict[str, Any]] = []
+        notes_rows: list[dict[str, Any]] = []
         for doc in totals_raw:
             row = {
                 "name": doc["name"],
@@ -220,8 +248,11 @@ class StatsStore:
                 models.append(row)
             elif doc.get("scope") == "provider":
                 providers.append(row)
+            elif doc.get("scope") == "notes":
+                notes_rows.append(row)
         models.sort(key=lambda r: r["requests"], reverse=True)
         providers.sort(key=lambda r: r["requests"], reverse=True)
+        notes_rows.sort(key=lambda r: r["requests"], reverse=True)
 
         hourly_docs = await self._buckets.find(
             {"grain": "hour", "bucket": {"$gte": hour_from}}
@@ -233,7 +264,7 @@ class StatsStore:
         return {
             "configured": True,
             "range": range_key,
-            "totals": {"models": models, "providers": providers},
+            "totals": {"models": models, "providers": providers, "notes": notes_rows},
             "series": {
                 "hourly": self._pivot_series(hourly_docs),
                 "daily": self._pivot_series(daily_docs),
@@ -262,6 +293,17 @@ class StatsStore:
                     }
                     for p in providers
                 ],
+                "notes": [
+                    {
+                        "name": n["name"],
+                        "requests": n["requests"],
+                        "failures": n["failures"],
+                        "success_rate": n["success_rate"],
+                        "avg_latency_ms": n["avg_latency_ms"],
+                        "max_latency_ms": n["max_latency_ms"],
+                    }
+                    for n in notes_rows
+                ],
             },
         }
 
@@ -277,12 +319,34 @@ class StatsStore:
                     "bucket": bucket.isoformat().replace("+00:00", "Z"),
                     "by_model": {},
                     "by_provider": {},
+                    "by_notes": {},
                     "requests": 0,
                     "failures": 0,
                 },
             )
             metrics = self._row_metrics(doc)
             model = doc.get("model") or "unknown"
+            if doc.get("kind") == "notes" or model.startswith("__note__:"):
+                note = doc.get("notes") or model.removeprefix("__note__:") or "(none)"
+                prev_n = entry["by_notes"].get(note)
+                if prev_n is None:
+                    entry["by_notes"][note] = {
+                        "requests": metrics["requests"],
+                        "failures": metrics["failures"],
+                        "latency_sum_ms": float(doc.get("latency_sum_ms") or 0),
+                        "tokens_sum": metrics["tokens_sum"],
+                        "max_latency_ms": metrics["max_latency_ms"],
+                    }
+                else:
+                    prev_n["requests"] += metrics["requests"]
+                    prev_n["failures"] += metrics["failures"]
+                    prev_n["latency_sum_ms"] += float(doc.get("latency_sum_ms") or 0)
+                    prev_n["tokens_sum"] += metrics["tokens_sum"]
+                    prev_n["max_latency_ms"] = max(
+                        prev_n["max_latency_ms"], metrics["max_latency_ms"]
+                    )
+                continue
+
             provider = doc.get("provider") or "unknown"
             entry["by_model"][model] = {
                 "provider": provider,
@@ -309,20 +373,21 @@ class StatsStore:
         out: list[dict[str, Any]] = []
         for bucket in sorted(by_bucket):
             entry = by_bucket[bucket]
-            finalized: dict[str, Any] = {}
-            for name, raw in entry["by_provider"].items():
-                req = raw["requests"]
-                fail = raw["failures"]
-                lat_sum = raw.pop("latency_sum_ms", 0.0)
-                finalized[name] = {
-                    "requests": req,
-                    "failures": fail,
-                    "success_rate": round(((req - fail) / req) if req else 0.0, 4),
-                    "avg_latency_ms": round((lat_sum / req) if req else 0.0, 2),
-                    "max_latency_ms": raw["max_latency_ms"],
-                    "tokens_sum": raw["tokens_sum"],
-                }
-            entry["by_provider"] = finalized
+            for dim in ("by_provider", "by_notes"):
+                finalized: dict[str, Any] = {}
+                for name, raw in entry[dim].items():
+                    req = raw["requests"]
+                    fail = raw["failures"]
+                    lat_sum = raw.pop("latency_sum_ms", 0.0)
+                    finalized[name] = {
+                        "requests": req,
+                        "failures": fail,
+                        "success_rate": round(((req - fail) / req) if req else 0.0, 4),
+                        "avg_latency_ms": round((lat_sum / req) if req else 0.0, 2),
+                        "max_latency_ms": raw["max_latency_ms"],
+                        "tokens_sum": raw["tokens_sum"],
+                    }
+                entry[dim] = finalized
             out.append(entry)
         return out
 
@@ -345,9 +410,9 @@ class NullStatsStore:
         return {
             "configured": False,
             "range": range_key,
-            "totals": {"models": [], "providers": []},
+            "totals": {"models": [], "providers": [], "notes": []},
             "series": {"hourly": [], "daily": []},
-            "performance": {"models": [], "providers": []},
+            "performance": {"models": [], "providers": [], "notes": []},
             "detail": self.detail,
         }
 

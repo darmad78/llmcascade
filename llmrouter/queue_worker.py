@@ -26,6 +26,7 @@ class _Job:
     capability: str
     params: dict[str, Any]
     future: asyncio.Future[LLMResponse]
+    notes: str | None = None
 
 
 class RouterClient:
@@ -93,6 +94,7 @@ class RouterClient:
 
     async def _execute(self, model: ModelConfig, prompt: str, **params: Any) -> LLMResponse:
         wait_for_gemini = bool(params.pop("wait_for_gemini", False))
+        params.pop("notes", None)
         adapter = get_adapter(model, client=self._client)
         if (
             model.provider == "gemini"
@@ -121,7 +123,7 @@ class RouterClient:
 
                 try:
                     result = await self.selector.dispatch_with_fallback(
-                        job.prompt, job.capability, executor
+                        job.prompt, job.capability, executor, notes=job.notes
                     )
                     if not job.future.done():
                         job.future.set_result(result)
@@ -131,19 +133,43 @@ class RouterClient:
             finally:
                 self._queue.task_done()
 
-    async def submit(self, prompt: str, capability: str = "chat", **params: Any) -> LLMResponse:
+    async def submit(
+        self,
+        prompt: str,
+        capability: str = "chat",
+        *,
+        notes: str | None = None,
+        **params: Any,
+    ) -> LLMResponse:
         """Submit a completion. Additive: wait_for_gemini=False (default) falls through
         to other free providers when the Gemini cascade is fully cooling.
         """
         if not self._started:
             await self.start()
+        # Never forward notes to provider adapters.
+        if notes is None and "notes" in params:
+            raw = params.pop("notes")
+            notes = str(raw).strip() or None if raw is not None else None
+        else:
+            params.pop("notes", None)
+        if notes is not None:
+            notes = str(notes).strip() or None
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[LLMResponse] = loop.create_future()
-        job = _Job(prompt=prompt, capability=capability, params=params, future=fut)
+        job = _Job(
+            prompt=prompt,
+            capability=capability,
+            params=params,
+            future=fut,
+            notes=notes,
+        )
         try:
             self._queue.put_nowait(job)
         except asyncio.QueueFull as exc:
-            events.record("request queue is full", level="error", capability=capability)
+            detail: dict[str, Any] = {"capability": capability}
+            if notes:
+                detail["notes"] = notes
+            events.record("request queue is full", level="error", **detail)
             raise QueueFullError("request queue is full") from exc
         return await fut
 

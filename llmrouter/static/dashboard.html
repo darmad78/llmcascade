@@ -523,8 +523,9 @@
         const cls = e.level === "error" || e.detail?.success === false ? "err"
           : e.detail?.success === true ? "ok-line" : "";
         const model = e.model ? ` [${e.model}]` : "";
+        const notes = e.detail?.notes ? ` · ${e.detail.notes}` : "";
         const extra = e.detail?.error ? ` — ${e.detail.error}` : "";
-        return `<div class="${cls}"><span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(extra)}</div>`;
+        return `<div class="${cls}"><span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(notes)}${escapeHtml(extra)}</div>`;
       }).join("");
       if (stickTop) el.scrollTop = 0;
     }

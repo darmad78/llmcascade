@@ -39,6 +39,7 @@ class CompleteRequest(BaseModel):
     prompt: str
     capability: str = "chat"
     params: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = None
 
 
 @asynccontextmanager
@@ -95,9 +96,14 @@ def _require_client() -> RouterClient:
 async def complete(body: CompleteRequest) -> LLMResponse:
     client = _require_client()
     try:
-        return await client.submit(body.prompt, body.capability, **body.params)
+        return await client.submit(
+            body.prompt, body.capability, notes=body.notes, **body.params
+        )
     except Exception as exc:
-        events.record(str(exc), level="error", capability=body.capability)
+        detail: dict[str, Any] = {"capability": body.capability}
+        if body.notes and str(body.notes).strip():
+            detail["notes"] = str(body.notes).strip()
+        events.record(str(exc), level="error", **detail)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
