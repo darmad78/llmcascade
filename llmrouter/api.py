@@ -357,10 +357,16 @@ async def logout(request: Request) -> Response:
 
 
 @app.get("/admin/change-password", response_class=HTMLResponse)
-async def change_password_page() -> FileResponse:
+async def change_password_page(request: Request) -> Response:
     if not _CHANGE_PASSWORD_HTML.is_file():
         raise HTTPException(status_code=404, detail="change_password.html missing")
-    return FileResponse(_CHANGE_PASSWORD_HTML, media_type="text/html")
+    html = _CHANGE_PASSWORD_HTML.read_text(encoding="utf-8")
+    token = new_csrf_token()
+    html = html.replace("__CSRF_TOKEN__", token)
+    secure = cookie_secure(_is_https(request))
+    resp = HTMLResponse(html)
+    resp.set_cookie(CSRF_COOKIE, token, **csrf_cookie_kwargs(secure=secure))
+    return resp
 
 
 @app.post("/admin/change-password")
@@ -388,10 +394,16 @@ async def change_password_submit(
 
 
 @app.get("/admin/providers", response_class=HTMLResponse)
-async def admin_providers_page() -> FileResponse:
+async def admin_providers_page(request: Request) -> Response:
     if not _ADMIN_PROVIDERS_HTML.is_file():
         raise HTTPException(status_code=404, detail="admin_providers.html missing")
-    return FileResponse(_ADMIN_PROVIDERS_HTML, media_type="text/html")
+    html = _ADMIN_PROVIDERS_HTML.read_text(encoding="utf-8")
+    token = new_csrf_token()
+    html = html.replace("__CSRF_TOKEN__", token)
+    secure = cookie_secure(_is_https(request))
+    resp = HTMLResponse(html)
+    resp.set_cookie(CSRF_COOKIE, token, **csrf_cookie_kwargs(secure=secure))
+    return resp
 
 
 @app.get("/admin/providers/data")

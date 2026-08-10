@@ -129,13 +129,9 @@
     <div class="msg" id="msg"></div>
   </main>
   <script>
-    function readCookie(name) {
-      const m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()[\\]\\/+^])/g, "\\$1") + "=([^;]*)"));
-      return m ? decodeURIComponent(m[1]) : "";
-    }
+    const CSRF_TOKEN = "__CSRF_TOKEN__";
     function csrfHeaders() {
-      const t = readCookie("llmrouter_csrf");
-      return { "Content-Type": "application/json", "X-CSRF-Token": t };
+      return { "Content-Type": "application/json", "X-CSRF-Token": CSRF_TOKEN };
     }
     async function load() {
       const res = await fetch("/admin/providers/data");
@@ -172,7 +168,7 @@
       const provider = tr.dataset.provider;
       const api_key = tr.querySelector("[data-key]").value;
       const free_paid = tr.querySelector("[data-tier]").value;
-      const body = { provider, free_paid, csrf_token: readCookie("llmrouter_csrf") };
+      const body = { provider, free_paid, csrf_token: CSRF_TOKEN };
       if (api_key) body.api_key = api_key;
       const res = await fetch("/admin/providers", {
         method: "POST",
