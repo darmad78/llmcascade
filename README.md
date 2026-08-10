@@ -229,6 +229,7 @@ Set `LLMROUTER_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: ht
 | `GET` | `/v1/events` | Auth-protected event ring |
 | `GET` | `/v1/errors` | Auth-protected errors ring |
 | `GET` | `/v1/dashboard` | Auth-protected dashboard JSON |
+| `GET` | `/help` | Public error / scenario catalog (no login) |
 | `GET` | `/login` | Admin login form |
 | `GET` | `/dashboard` | Status UI (login required) |
 | `GET` | `/stats` | Stats UI (login required) |

@@ -68,6 +68,7 @@ _STATS_HTML = _STATIC / "stats.html"
 _LOGIN_HTML = _STATIC / "login.html"
 _CHANGE_PASSWORD_HTML = _STATIC / "change_password.html"
 _ADMIN_PROVIDERS_HTML = _STATIC / "admin_providers.html"
+_HELP_HTML = _STATIC / "help.html"
 
 
 class CompleteRequest(BaseModel):
@@ -309,6 +310,13 @@ async def login_page(request: Request) -> Response:
     if not _LOGIN_HTML.is_file():
         raise HTTPException(status_code=404, detail="login.html missing")
     return FileResponse(_LOGIN_HTML, media_type="text/html")
+
+
+@app.get("/help", response_class=HTMLResponse)
+async def help_page() -> FileResponse:
+    if not _HELP_HTML.is_file():
+        raise HTTPException(status_code=404, detail="help.html missing")
+    return FileResponse(_HELP_HTML, media_type="text/html")
 
 
 @app.post("/login")
