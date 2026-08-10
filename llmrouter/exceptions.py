@@ -23,6 +23,19 @@ class ProviderError(Exception):
         self.model = model
         self.headers = {k.lower(): v for k, v in (headers or {}).items()}
 
+    @property
+    def safe_message(self) -> str:
+        """Status/provider/model only — never include provider response bodies."""
+        parts = []
+        if self.provider:
+            parts.append(self.provider)
+        if self.model:
+            parts.append(self.model)
+        who = "/".join(parts) if parts else "provider"
+        if self.status_code is not None:
+            return f"{who} HTTP {self.status_code}"
+        return f"{who} error"
+
 
 class AllModelsExhaustedError(Exception):
     pass
@@ -30,3 +43,15 @@ class AllModelsExhaustedError(Exception):
 
 class QueueFullError(Exception):
     pass
+
+
+def safe_error_message(exc: BaseException) -> str:
+    """Public-safe error string for logs, events, and HTTP responses."""
+    if isinstance(exc, ProviderError):
+        return exc.safe_message
+    if isinstance(exc, AllModelsExhaustedError):
+        text = str(exc)
+        if "; last error:" in text:
+            return text.split("; last error:", 1)[0].strip()
+        return text
+    return type(exc).__name__

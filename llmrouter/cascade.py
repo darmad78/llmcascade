@@ -309,7 +309,7 @@ class GeminiCascadeManager:
 
             msg = "gemini cascade exhausted"
             if last_err:
-                msg = f"{msg}: {last_err}"
+                msg = f"{msg}: {last_err.safe_message}"
             raise ProviderError(
                 msg,
                 status_code=last_err.status_code if last_err else None,

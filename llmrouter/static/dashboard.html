@@ -329,6 +329,8 @@
       <nav class="page-nav" aria-label="Pages">
         <a class="nav-btn is-active" href="/dashboard">Status</a>
         <a class="nav-btn" href="/stats">Stats</a>
+        <a class="nav-btn" href="/admin/providers">Providers</a>
+        <a class="nav-btn" href="/logout">Logout</a>
       </nav>
     </div>
     <div class="meta" id="meta">loading…</div>
@@ -342,6 +344,9 @@
           <thead>
             <tr>
               <th>Model</th>
+              <th>Key</th>
+              <th>Active</th>
+              <th>Free/Paid</th>
               <th>Health</th>
               <th>Free tier</th>
               <th>Free left</th>
@@ -466,6 +471,9 @@
             <div class="name">${escapeHtml(m.name)}${nextBadge}</div>
             <div class="provider">${escapeHtml(m.provider)} · p${m.priority}</div>
           </td>
+          <td class="budget">${m.key_set ? escapeHtml(m.key_source || "set") : "none"}</td>
+          <td><span class="pill ${m.active ? "ok" : "unk"}">${m.active ? "yes" : "no"}</span></td>
+          <td>${escapeHtml(m.free_paid || "free")}</td>
           <td><span class="pill ${state}" title="${escapeHtml(tip)}">${escapeHtml(state)}</span></td>
           <td>${fmtFreeTier(m)}</td>
           <td>${fmtFreeLeft(m)}</td>

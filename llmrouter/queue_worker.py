@@ -15,9 +15,19 @@ from llmrouter.exceptions import QueueFullError
 from llmrouter.health import health_cache
 from llmrouter.metrics import metrics
 from llmrouter.rate_limiter import RateLimiter
-from llmrouter.registry import ModelConfig, load_registry
+from llmrouter.registry import ModelConfig, key_source, list_all_models, load_registry
 from llmrouter.selector import ModelSelector, Strategy
 from llmrouter.stats_store import NullStatsStore, StatsStore
+
+try:
+    from llmrouter.provider_store import get_free_paid, key_is_set
+except Exception:  # pragma: no cover
+    def get_free_paid(provider: str) -> str:  # type: ignore[misc]
+        return "free"
+
+    def key_is_set(provider: str) -> bool:  # type: ignore[misc]
+        return False
+
 
 
 @dataclass
@@ -42,8 +52,15 @@ class RouterClient:
         gemini_cascade: GeminiCascadeManager | None = None,
         cooldowns: ModelCooldownTracker | None = None,
         stats: StatsStore | NullStatsStore | None = None,
+        allow_empty: bool = False,
     ) -> None:
-        self.registry = registry if registry is not None else load_registry(models_path)
+        self.registry = (
+            registry
+            if registry is not None
+            else load_registry(models_path, allow_empty=allow_empty)
+        )
+        self._models_path = models_path
+        self._strategy = strategy
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
         self.cooldowns = cooldowns or ModelCooldownTracker()
         self.rate_limiter = rate_limiter or RateLimiter(
@@ -91,6 +108,21 @@ class RouterClient:
         self._tasks.clear()
         await self._client.aclose()
         self._started = False
+
+    def reload_registry(self, *, allow_empty: bool = True) -> int:
+        """Hot-reload models from YAML + current keys without stopping workers."""
+        new_registry = load_registry(self._models_path, allow_empty=allow_empty)
+        self.registry = new_registry
+        self.gemini_cascade = cascade_manager_from_registry(new_registry)
+        self.rate_limiter.replace_models(new_registry)
+        self.rate_limiter.gemini_cascade = self.gemini_cascade
+        self.rate_limiter.cooldowns = self.cooldowns
+        self.selector.registry = list(new_registry)
+        self.selector.rate_limiter = self.rate_limiter
+        self.selector.cooldowns = self.cooldowns
+        self.selector.stats = self.stats
+        self.selector.strategy = self._strategy
+        return len(new_registry)
 
     async def _execute(self, model: ModelConfig, prompt: str, **params: Any) -> LLMResponse:
         wait_for_gemini = bool(params.pop("wait_for_gemini", False))
@@ -211,27 +243,38 @@ class RouterClient:
         if not isinstance(cooling, dict):
             cooling = {}
         models = []
-        for m in self.registry:
+        active_names = {m.name for m in self.registry}
+        all_models = list_all_models(self._models_path) if self._models_path else list(self.registry)
+        # Prefer live registry rows; also surface inactive models that lack keys.
+        by_name = {m.name: m for m in all_models}
+        by_name.update({m.name: m for m in self.registry})
+        for m in by_name.values():
             budget = budgets.get(m.name, {})
+            src = key_source(m.auth_env_var, provider=m.provider)
             entry: dict[str, Any] = {
                 "name": m.name,
                 "provider": m.provider,
                 "priority": m.priority,
                 "capabilities": m.capabilities,
                 "limits": m.limits.model_dump(),
-                "budget": budget,
+                "budget": budget if m.name in active_names else {},
                 "free_tier_verified": m.free_tier_verified,
                 "free_tier_note": m.free_tier_note,
-                "free_left": budget if m.free_tier_verified else None,
+                "free_left": budget if m.free_tier_verified and m.name in active_names else None,
                 "is_next": bool(next_model and next_model.name == m.name),
                 "requests_total": snap["requests_total"].get(m.name, 0),
                 "failures_total": snap["failures_total"].get(m.name, 0),
                 "health": health.get(m.name, {"state": "unknown"}),
                 "cooldown": cooling.get(m.name),
+                "key_set": src != "none" or key_is_set(m.provider),
+                "key_source": src,
+                "active": m.name in active_names,
+                "free_paid": get_free_paid(m.provider),
             }
             if m.cascade:
                 entry["cascade"] = list(m.cascade)
             models.append(entry)
+        models.sort(key=lambda e: (e["priority"], e["name"]))
         gemini = budgets.get("gemini_cascade")
         if isinstance(gemini, dict):
             gemini = {

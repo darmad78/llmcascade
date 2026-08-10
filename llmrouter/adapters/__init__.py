@@ -40,7 +40,7 @@ def get_adapter(model: ModelConfig, client: httpx.AsyncClient | None = None) -> 
     cls = _ADAPTERS.get(model.provider)
     if cls is None:
         raise ProviderError(f"unsupported provider: {model.provider}", retryable=False, provider=model.provider)
-    key = resolve_auth_env(model.auth_env_var)
+    key = resolve_auth_env(model.auth_env_var, provider=model.provider)
     if not key:
         raise ProviderError(
             f"missing env {model.auth_env_var}",

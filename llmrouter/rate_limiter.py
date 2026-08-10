@@ -54,6 +54,14 @@ class RateLimiter:
         self.gemini_cascade = gemini_cascade
         self.cooldowns = cooldowns
 
+    def replace_models(self, models: list[ModelConfig]) -> None:
+        """Hot-reload model limit map; preserve budget event store."""
+        self._models = {m.name: m for m in models}
+        for m in models:
+            if m.name not in self._locks:
+                self._locks[m.name] = asyncio.Lock()
+
+
     def _lock(self, model_name: str) -> asyncio.Lock:
         if model_name not in self._locks:
             self._locks[model_name] = asyncio.Lock()
@@ -121,3 +129,42 @@ class RateLimiter:
                 "rpd": max(0, lim.rpd - used["rpd"]),
                 "tpm": max(0, lim.tpm - used["tpm"]),
             }
+
+
+class ApiKeyRateLimiter:
+    """Per-API-key RPM limiter (process-local). Opt-in via LLMROUTER_API_RPM."""
+
+    def __init__(self, rpm: int, store: BudgetStore | None = None) -> None:
+        if rpm < 1:
+            raise ValueError("rpm must be >= 1")
+        self.rpm = rpm
+        self._store = store or InMemoryBudgetStore()
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def _lock(self, key_id: str) -> asyncio.Lock:
+        if key_id not in self._locks:
+            self._locks[key_id] = asyncio.Lock()
+        return self._locks[key_id]
+
+    @staticmethod
+    def key_id(api_key: str) -> str:
+        # Avoid storing raw keys as dict keys in logs; use a short stable id.
+        import hashlib
+
+        return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+
+    async def check_and_record(self, api_key: str) -> bool:
+        """Return True if allowed (and record), False if over limit."""
+        kid = self.key_id(api_key)
+        async with self._lock(kid):
+            now = time.monotonic()
+            store_key = f"apikey:{kid}:rpm"
+            events = _prune(await self._store.get_events(store_key), now, 60.0)
+            used = sum(n for _, n in events)
+            if used >= self.rpm:
+                await self._store.set_events(store_key, events)
+                return False
+            events.append((now, 1))
+            await self._store.set_events(store_key, events)
+            return True
+

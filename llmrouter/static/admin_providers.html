@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmrouter · providers</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --line: #2a3544;
+      --text: #d6dde6;
+      --muted: #8b97a8;
+      --ok: #3dba7a;
+      --bad: #e05a5a;
+      --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+      --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%),
+        var(--bg);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { margin: 0; font-size: 1.35rem; }
+    .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .nav-btn {
+      display: inline-block;
+      padding: 0.28rem 0.7rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 550;
+    }
+    .nav-btn.is-active {
+      color: var(--text);
+      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+    }
+    main { padding: 1rem 1.5rem 2rem; }
+    .note {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin: 0 0 1rem;
+      max-width: 48rem;
+    }
+    .warn { color: #d4a017; }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+    th, td { text-align: left; padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { color: var(--muted); font-size: 0.75rem; font-weight: 600; }
+    input[type="password"], input[type="text"] {
+      width: min(18rem, 100%);
+      padding: 0.4rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: #12181f;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+    select {
+      padding: 0.35rem 0.45rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: #12181f;
+      color: var(--text);
+    }
+    button.save {
+      padding: 0.35rem 0.7rem;
+      border-radius: 4px;
+      border: 1px solid #3a6ea5;
+      background: color-mix(in srgb, #3a6ea5 30%, var(--panel));
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .src { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+    .ok { color: var(--ok); }
+    .msg { margin-top: 0.75rem; font-size: 0.85rem; min-height: 1.2em; }
+    .msg.err { color: var(--bad); }
+    .msg.ok { color: var(--ok); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>llmrouter <span style="color:var(--muted);font-weight:500">providers</span></h1>
+    <nav class="page-nav">
+      <a class="nav-btn" href="/dashboard">Status</a>
+      <a class="nav-btn" href="/stats">Stats</a>
+      <a class="nav-btn is-active" href="/admin/providers">Providers</a>
+      <a class="nav-btn" href="/logout">Logout</a>
+    </nav>
+  </header>
+  <main>
+    <p class="note">
+      Keys are encrypted at rest (Fernet via HKDF-derived key). Environment variables always override UI-stored keys.
+      Cloudflare still needs <code>CLOUDFLARE_ACCOUNT_ID</code> in <code>.env</code>.
+    </p>
+    <p class="note warn">
+      Free/Paid is a display-only label — paid providers with a key remain eligible for automatic routing and can incur cost.
+    </p>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Key source</th>
+            <th>API key</th>
+            <th>Free / Paid</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="msg" id="msg"></div>
+  </main>
+  <script>
+    function readCookie(name) {
+      const m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()[\\]\\/+^])/g, "\\$1") + "=([^;]*)"));
+      return m ? decodeURIComponent(m[1]) : "";
+    }
+    function csrfHeaders() {
+      const t = readCookie("llmrouter_csrf");
+      return { "Content-Type": "application/json", "X-CSRF-Token": t };
+    }
+    async function load() {
+      const res = await fetch("/admin/providers/data");
+      if (!res.ok) throw new Error("failed to load providers");
+      const data = await res.json();
+      const tb = document.getElementById("rows");
+      tb.innerHTML = data.providers.map((p) => `
+        <tr data-provider="${p.provider}">
+          <td>
+            <strong>${p.provider}</strong>
+            <div class="src">${p.auth_env_var}${p.needs_account_id ? " + ACCOUNT_ID" : ""}</div>
+          </td>
+          <td class="src">${p.key_set ? p.key_source : "none"}</td>
+          <td>
+            <input type="password" placeholder="${p.key_set ? "•••••••• (leave blank to keep)" : "paste API key"}" data-key />
+          </td>
+          <td>
+            <select data-tier>
+              <option value="free" ${p.free_paid === "free" ? "selected" : ""}>Free</option>
+              <option value="paid" ${p.free_paid === "paid" ? "selected" : ""}>Paid</option>
+            </select>
+          </td>
+          <td><button class="save" type="button">Save</button></td>
+        </tr>
+      `).join("");
+      tb.querySelectorAll("button.save").forEach((btn) => {
+        btn.addEventListener("click", () => saveRow(btn.closest("tr")));
+      });
+    }
+    async function saveRow(tr) {
+      const msg = document.getElementById("msg");
+      msg.className = "msg";
+      msg.textContent = "Saving…";
+      const provider = tr.dataset.provider;
+      const api_key = tr.querySelector("[data-key]").value;
+      const free_paid = tr.querySelector("[data-tier]").value;
+      const body = { provider, free_paid, csrf_token: readCookie("llmrouter_csrf") };
+      if (api_key) body.api_key = api_key;
+      const res = await fetch("/admin/providers", {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        msg.className = "msg err";
+        msg.textContent = data.detail || "save failed";
+        return;
+      }
+      msg.className = "msg ok";
+      msg.textContent = `Saved ${provider}; registry now has ${data.models} active model(s).`;
+      tr.querySelector("[data-key]").value = "";
+      await load();
+    }
+    load().catch((e) => {
+      document.getElementById("msg").className = "msg err";
+      document.getElementById("msg").textContent = String(e);
+    });
+  </script>
+</body>
+</html>

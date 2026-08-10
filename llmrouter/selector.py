@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 from llmrouter.adapters.base import LLMResponse
-from llmrouter.exceptions import AllModelsExhaustedError, ProviderError
+from llmrouter.exceptions import AllModelsExhaustedError, ProviderError, safe_error_message
 from llmrouter.event_log import events
 from llmrouter.metrics import log, metrics
 from llmrouter.rate_limiter import RateLimiter
@@ -180,7 +180,7 @@ class ModelSelector:
                             level="warn",
                             model=model.name,
                             provider=model.provider,
-                            error=str(exc),
+                            error=safe_error_message(exc),
                             capability=capability,
                             **note_detail,
                         )
@@ -202,15 +202,20 @@ class ModelSelector:
                     model=model.name,
                     provider=model.provider,
                     success=False,
-                    error=str(exc),
+                    error=safe_error_message(exc),
                     capability=capability,
                     **note_detail,
                 )
                 continue
 
-        msg = (
-            f"no free-tier model succeeded for capability={capability!r}"
-            + (f"; last error: {last_err}" if last_err else "")
+        msg = f"no free-tier model succeeded for capability={capability!r}"
+        if last_err is not None:
+            msg = f"{msg}; last error: {safe_error_message(last_err)}"
+        events.record(
+            f"no free-tier model succeeded for capability={capability!r}",
+            level="error",
+            capability=capability,
+            error=safe_error_message(last_err) if last_err else None,
+            **note_detail,
         )
-        events.record(msg, level="error", capability=capability, **note_detail)
         raise AllModelsExhaustedError(msg)

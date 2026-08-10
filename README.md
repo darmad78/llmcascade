@@ -2,7 +2,7 @@
 
 Standalone **free-tier LLM dispatcher**. At request time it picks an eligible free model from a live rate-limit budget, calls that provider’s native HTTP API, and falls back to the next model on failure.
 
-Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP layer. Python **3.11+**.
+Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP layer. Python **3.11+**. Self-hosted only (not a multi-tenant hosted service).
 
 ## Features
 
@@ -13,9 +13,10 @@ Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP lay
 - Async queue + worker pool with backpressure (`QueueFullError`)
 - Structured JSON request logs (metadata only) + in-memory metrics
 - Status dashboard (`/dashboard`) with per-model health, budgets, event/error logs
+- Admin UI (`/admin/providers`) for encrypted provider keys + Free/Paid labels
 - Optional free-text `notes` on completions (event log + stats grouping by source)
 - Historical stats UI (`/stats`) with MongoDB persistence when `MONGODB_URI` is set
-- Optional `POST /v1/complete` HTTP API
+- Optional `POST /v1/complete` HTTP API with opt-in API-key auth + per-key RPM
 
 ## Supported providers
 
@@ -44,7 +45,7 @@ git clone git@github.com:darmad78/llmrouter.git
 cd llmrouter
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .
-pip install -e ".[api]"   # optional FastAPI + uvicorn
+pip install -e ".[api]"   # optional FastAPI + uvicorn + admin auth crypto
 pip install -e ".[dev]"   # pytest
 ```
 
@@ -61,30 +62,34 @@ pip install "llmrouter[api] @ git+https://github.com/darmad78/llmrouter.git"
 ```bash
 cp .env.example .env
 # fill the keys you have — models without a key are skipped at startup
+# or leave keys empty and configure them later in /admin/providers
 ```
 
 Hugging Face: `HF_TOKEN` is preferred; if unset, `HUGGINGFACE_API_KEY` is used.  
-Cloudflare: both `CLOUDFLARE_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are required for the Cloudflare model to load.  
-Startup fails only if **no** model has a usable key.
+Cloudflare: both `CLOUDFLARE_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` are required for the Cloudflare model to load (`ACCOUNT_ID` stays env-only).  
+Keys may also be saved encrypted via the admin UI; **environment variables always override** UI-stored keys.
 
 Token estimates for TPM gating use `len(text) // 4` (no tiktoken). After a successful call, provider-reported `tokens_used` is preferred for `record_usage`.
 
 ## Programmatic usage (Python)
 
-### A. HTTP client (talk to the deployed service)
+### A. HTTP client (self-hosted instance)
 
-No llmrouter install required — call `POST /v1/complete` on the public host.
+No llmrouter install required — call `POST /v1/complete` on your instance.
 
 ```python
 import httpx
 
-BASE = "https://llmrouter.conceptgame.co.uk"
+BASE = "http://localhost:12000"
 
 def complete(prompt: str, capability: str = "chat", notes: str | None = None, **params) -> dict:
     body = {"prompt": prompt, "capability": capability, "params": params}
     if notes:
         body["notes"] = notes  # e.g. "app" / "system" — shown in event log + stats
-    r = httpx.post(f"{BASE}/v1/complete", json=body, timeout=120.0)
+    headers = {}
+    # If REQUIRE_AUTH=true on the server:
+    # headers["Authorization"] = "Bearer YOUR_LLMROUTER_API_KEY"
+    r = httpx.post(f"{BASE}/v1/complete", json=body, headers=headers, timeout=120.0)
     r.raise_for_status()
     return r.json()  # text, model, tokens_used, latency_ms, raw
 
@@ -98,7 +103,7 @@ Async:
 import httpx
 import asyncio
 
-BASE = "https://llmrouter.conceptgame.co.uk"
+BASE = "http://localhost:12000"
 
 async def complete(prompt: str, capability: str = "chat", notes: str | None = None, **params) -> dict:
     body = {"prompt": prompt, "capability": capability, "params": params}
@@ -117,7 +122,7 @@ Useful GETs: `/v1/status`, `/v1/metrics`, `/v1/health`, `/v1/status/gemini`, `/v
 
 ### B. In-process library (`RouterClient`)
 
-Runs the dispatcher inside your app (needs provider keys in the environment / `.env`).
+Runs the dispatcher inside your app (needs provider keys in the environment / `.env` / admin store).
 
 ```python
 import asyncio
@@ -154,34 +159,15 @@ Response shape (both paths): `text`, `model`, `tokens_used`, `latency_ms`, `raw`
 
 ## Run (HTTP + dashboard)
 
-Budgets, metrics, health cache, and event logs are **in-memory and process-local**. Always run **one** process (one uvicorn worker / one PM2 instance). Do **not** use `--workers 2+` or PM2 cluster mode until a shared `BudgetStore` exists.
-
-### Production
-
-| | |
-|--|--|
-| Host | `/root/llmrouter` on the conceptgame VPS |
-| Process | PM2 `llmrouter` → `.venv/bin/uvicorn` on `127.0.0.1:12000` |
-| Public URL | **https://llmrouter.conceptgame.co.uk** (nginx → `:12000`, Cloudflare + Let’s Encrypt) |
-| Dashboard | https://llmrouter.conceptgame.co.uk/dashboard |
-
-Sample:
-
-```bash
-curl -sS https://llmrouter.conceptgame.co.uk/v1/complete \
-  -H 'content-type: application/json' \
-  -d '{"prompt":"Say hi in one sentence.","capability":"chat"}'
-```
-
-Do **not** expose `:12000` publicly; use the HTTPS subdomain only.
+Budgets, metrics, health cache, event logs, API-key RPM, and login lockout are **in-memory and process-local**. Always run **one** process (one uvicorn worker / one PM2 instance). Do **not** use `--workers 2+` or PM2 cluster mode until a shared `BudgetStore` exists.
 
 ### 1. Env + install
 
 ```bash
-cd /root/llmrouter   # or your local clone
+cd /path/to/llmrouter
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[api]"
-cp .env.example .env   # fill provider keys
+cp .env.example .env   # fill provider keys and optional security settings
 set -a && source .env && set +a
 ```
 
@@ -191,54 +177,31 @@ set -a && source .env && set +a
 uvicorn llmrouter.api:app --host 0.0.0.0 --port 12000
 ```
 
-Open **http://localhost:12000/dashboard**.
+Open **http://localhost:12000/login** (default first-run: `admin` / `admin` — you must change the password before the dashboard unlocks).
 
-### 3. PM2 (production)
+### 3. Process manager (example)
 
-Single instance only (`instances: 1`, no cluster). Load `.env` in the shell **before** `pm2 start` so keys are inherited. Use the venv binary with `--interpreter none` (do **not** use `--interpreter bash`).
+Single instance only (`instances: 1`, no cluster). Load `.env` before start so keys are inherited.
 
 ```bash
-cd /root/llmrouter
+cd /path/to/llmrouter
 set -a && source .env && set +a
-
-# first start / clean recreate
 pm2 delete llmrouter 2>/dev/null || true
-pm2 start .venv/bin/uvicorn --name llmrouter --interpreter none --cwd /root/llmrouter -- \
-  llmrouter.api:app --host 0.0.0.0 --port 12000
+pm2 start .venv/bin/uvicorn --name llmrouter --interpreter none --cwd /path/to/llmrouter -- \
+  llmrouter.api:app --host 127.0.0.1 --port 12000
 pm2 save
 ```
 
-After `git pull` / code changes:
+Prefer binding uvicorn to `127.0.0.1` and terminating TLS at a reverse proxy when exposing beyond localhost.
 
-```bash
-cd /root/llmrouter
-git pull
-source .venv/bin/activate
-pip install -e ".[api]"
-set -a && source .env && set +a
-pm2 restart llmrouter --update-env
-```
-
-Persist across reboot: `pm2 startup` (once) then `pm2 save`.
-
-### 4. Nginx reverse proxy
-
-Site file `/etc/nginx/sites-available/llmrouter.conf` (symlink in `sites-enabled`), pattern matches other conceptgame apps:
+### 4. Nginx reverse proxy (example)
 
 ```nginx
 server {
-    listen 80;
-    server_name llmrouter.conceptgame.co.uk;
-    return 301 https://$host$request_uri;
-}
-
-server {
     listen 443 ssl;
-    server_name llmrouter.conceptgame.co.uk;
-    ssl_certificate /etc/letsencrypt/live/conceptgame.co.uk/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/conceptgame.co.uk/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    server_name llmrouter.example.com;
+    # ssl_certificate /path/to/fullchain.pem;
+    # ssl_certificate_key /path/to/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:12000;
@@ -251,34 +214,56 @@ server {
 }
 ```
 
-DNS: Cloudflare `A` record `llmrouter` → origin IP (proxied). Reload nginx after edits: `nginx -t && systemctl reload nginx`.
+Set `LLMROUTER_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: https` is set) so admin cookies get the `Secure` flag.
 
-### API routes
+### API / UI routes
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/v1/complete` | Body: `{ "prompt", "capability"?, "params"?, "notes"? }` → `LLMResponse` |
 | `GET` | `/v1/status` | Remaining budget per model + `gemini_cascade` snapshot |
 | `GET` | `/v1/status/gemini` | Per-cascade-model `available` / `available_at` |
-| `GET` | `/v1/metrics` | `requests_total`, `failures_total`, `current_budget` |
-| `GET` | `/v1/stats` | Historical counters (`?range=24h\|7d\|30d`); groups by model, provider, notes |
-| `GET` | `/v1/health` | Live provider reachability (cached ~30s; `?force=true` to refresh) |
-| `GET` | `/v1/events` | In-memory event ring buffer (includes `detail.notes` when set) |
-| `GET` | `/v1/errors` | Errors-only ring buffer |
-| `GET` | `/v1/dashboard` | Combined JSON for the UI |
-| `GET` | `/dashboard` | Status UI (event log shows notes when present) |
-| `GET` | `/stats` | Stats UI (charts/tables including by-notes grouping) |
+| `GET` | `/v1/metrics` | Auth-protected: counters + budgets |
+| `GET` | `/v1/stats` | Auth-protected historical counters |
+| `GET` | `/v1/health` | Live provider reachability |
+| `GET` | `/v1/events` | Auth-protected event ring |
+| `GET` | `/v1/errors` | Auth-protected errors ring |
+| `GET` | `/v1/dashboard` | Auth-protected dashboard JSON |
+| `GET` | `/login` | Admin login form |
+| `GET` | `/dashboard` | Status UI (login required) |
+| `GET` | `/stats` | Stats UI (login required) |
+| `GET` | `/admin/providers` | Provider key management (login required) |
+| `GET` | `/admin/change-password` | Forced on first login |
 
 Optional `notes` is free text (e.g. `"app"`, `"system"`). It is logged on request events, never forwarded to providers, and rolled into Mongo stats under `(none)` when omitted.
 
 Example:
 
 ```bash
-curl -s https://llmrouter.conceptgame.co.uk/v1/complete \
+curl -s http://localhost:12000/v1/complete \
   -H 'content-type: application/json' \
   -d '{"prompt":"Hello","capability":"chat","notes":"app"}'
-# local: http://localhost:12000/v1/complete
 ```
+
+### Optional API-key auth on `/v1/complete`
+
+Disabled by default (`REQUIRE_AUTH=false`). To require a key:
+
+```bash
+REQUIRE_AUTH=true
+LLMROUTER_API_KEYS=change-me,another-key
+# optional per-key RPM (process-local):
+LLMROUTER_API_RPM=60
+```
+
+Clients send `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+
+### Admin auth + provider keys
+
+- First boot creates local admin `admin` / `admin` under `LLMROUTER_DATA_DIR` (default `.llmrouter/`) and forces a password change before dashboard access.
+- Admin session is a JWT in an HttpOnly `SameSite=Lax` cookie (`Secure` when HTTPS / `LLMROUTER_COOKIE_SECURE=true`). Password changes bump `pwd_version` and invalidate older JWTs.
+- Admin POSTs use double-submit CSRF (`llmrouter_csrf` cookie + form/header token). Login has basic lockout after 5 failures (process-local).
+- Provider keys saved in the UI are encrypted at rest with Fernet using an **HKDF-derived** key from `SECRET_KEY` (never the raw secret as the Fernet key).
 
 ## Failure / fallback behavior
 
@@ -313,7 +298,7 @@ Thinking models (`*2.5*` or `gemini-3*`) send `thinkingConfig.thinkingBudget: 0`
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[api,dev]"
 pytest -q
 ```
 
@@ -326,26 +311,37 @@ llmrouter/
   .env.example
   README.md
   llmrouter/
-    registry.py      # YAML + env validation
-    rate_limiter.py  # BudgetStore + in-memory limiter
+    registry.py      # YAML + env / encrypted-store auth resolution
+    rate_limiter.py  # BudgetStore + in-memory + API-key limiter
     tokens.py
     selector.py
     cascade.py       # Gemini classify + cooldown + cascade runner
-    queue_worker.py  # RouterClient
+    queue_worker.py  # RouterClient (+ hot reload)
     metrics.py
     event_log.py     # in-memory event / error rings
     health.py        # provider reachability probes
+    auth_store.py    # local admin credentials
+    provider_store.py# encrypted provider keys
+    admin_auth.py    # JWT cookie + CSRF + lockout
+    api_auth.py      # optional /v1/complete API keys
     api.py           # optional FastAPI
-    static/          # /dashboard UI
+    static/          # dashboard / stats / admin UI
     adapters/        # one adapter per provider
   tests/
 ```
 
-## Privacy & security
+## Security
 
-- **Credentials:** Provider keys live in `.env` (gitignored). Never commit secrets; use `.env.example` as a template.
-- **Logging:** Structured logs and the in-memory event/error rings record metadata only (model, provider, latency, tokens, capability, success/error). They do **not** persist prompt text, completions, or API keys.
-- **Public host:** The deployed instance at `llmrouter.conceptgame.co.uk` is BYOK against operator-held keys; treat it accordingly and do not send sensitive prompts you are unwilling to expose to upstream providers.
+**Self-hosted only.** This is not a multi-tenant hosted service.
+
+- Uvicorn examples often bind `0.0.0.0`. That exposes the process on all interfaces. Prefer `127.0.0.1` behind a reverse proxy, or firewall the port.
+- **`POST /v1/complete` has no auth unless you set `REQUIRE_AUTH=true` and `LLMROUTER_API_KEYS`.** Do not expose it to the public internet without that (plus TLS).
+- The admin UI (`/login`, `/dashboard`, `/stats`, `/admin/*`, and related `/v1/*` data routes) uses a **separate** JWT cookie auth layer. Enabling API-key auth does not protect the dashboard by itself, and logging into the dashboard does not authorize `/v1/complete`.
+- Do **not** put an unauthenticated llmrouter on the public internet. Minimum for any internet exposure: `REQUIRE_AUTH=true`, strong `LLMROUTER_API_KEYS`, changed admin password, reverse proxy + TLS, and `LLMROUTER_COOKIE_SECURE=true`.
+- **Free/Paid** on `/admin/providers` is a **display-only** label. Paid providers with a configured key are still selected automatically by routing — the label does not block spend or exclude models.
+- Provider keys: `.env` (gitignored) and/or encrypted UI store under `LLMROUTER_DATA_DIR`. Never commit secrets.
+- Logging / `/v1/events`: metadata only (model, provider, latency, tokens, capability, safe error status). No prompts, completions, API keys, or raw provider response bodies.
+- Single-worker limitation remains: budgets and lockouts are process-local.
 
 ## Legal & ToS Disclaimer
 

@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.llmrouter/
 .DS_Store
 dist/
 build/
