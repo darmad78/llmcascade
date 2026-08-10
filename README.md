@@ -353,8 +353,9 @@ llmrouter/
 
 ## License
 
-**BUSL-1.1-derived / source-available** — see [LICENSE](LICENSE) (draft; not legal advice) and [LICENSING-FAQ.md](LICENSING-FAQ.md).
+**BUSL-1.1-derived / source-available** (v1.1) — see [LICENSE](LICENSE) (draft; not legal advice) and [LICENSING-FAQ.md](LICENSING-FAQ.md).
 
-- **Free** for personal, educational, and internal **non-revenue** use (including self-hosting for that use).
-- **Commercial / revenue-generating** use (including hosted/SaaS or inclusion in a paid product) requires a separate paid **Commercial License** — contact **support@conceptgame.co.uk** before that use begins.
-- On **10 August 2030** (Change Date), the Licensed Work automatically becomes available under **Apache License, Version 2.0**.
+- **Free** for **Non-Commercial Use**: personal, educational, academic, and internal use where nothing built on llmrouter is sold or monetized.
+- **Commercial Use** (including hosted/SaaS or any revenue-connected product/service) requires a separate written **Commercial License** — contact **support@conceptgame.co.uk** before that use begins.
+- On **10 August 2030** (Change Date), the commercial restriction ends and the Licensed Work becomes available under **Apache License, Version 2.0**.
+- Governed by the laws of **England and Wales**.

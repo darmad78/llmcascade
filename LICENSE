@@ -1,36 +1,62 @@
 # DRAFT — not legal advice. Have a lawyer review this license (especially the
-# royalty / commercial-use clause) before you rely on it.
+# royalty / commercial-use / remedy / governing-law terms) before you rely on it.
 
-llmrouter Source-Available License v1.0 (based on Business Source License 1.1)
+llmrouter Source-Available License v1.1 (based on Business Source License 1.1)
 Copyright (c) 2026 Dario Maddaluno
 
 Licensor: Dario Maddaluno
+Contact: support@conceptgame.co.uk
 
-Licensed Work: llmrouter (this repository and all its source code)
+Licensed Work: llmrouter (this repository and all its source code,
+including modifications and derivative works based on it).
 
-Additional Use Grant: You may use, copy, modify, and self-host the
-Licensed Work free of charge for personal, educational, and internal
-non-revenue-generating purposes.
+1. Definitions
 
-Any use of the Licensed Work — or a modified or derivative version of
-it — that is part of, or supports, a product or service for which you
-charge money, accept payment, or otherwise generate revenue (including
-but not limited to a hosted/managed service, SaaS offering, or
-inclusion in a paid product) requires a separate paid Commercial
-License from the Licensor, including payment of royalties on terms to
-be agreed with the Licensor before such use begins.
+"Commercial Use" means any use of the Licensed Work, in whole or in
+part, where you or a third party receives payment, subscription fees,
+advertising revenue, or any other financial benefit connected to a
+product or service that incorporates, relies on, or is built using the
+Licensed Work — including operating it as a hosted or managed service
+for others, whether or not the Licensed Work itself is modified.
 
-Change Date: August 10, 2030
+"Non-Commercial Use" means personal projects, educational use,
+academic research, and internal use within an organization where no
+product or service built on the Licensed Work is sold, monetized, or
+offered to external customers or the public for payment.
 
-Change License: Apache License, Version 2.0
+2. Grant
 
-On the Change Date, the Additional Use Grant above terminates and the
-Licensed Work automatically becomes available under the Change License
-instead of this license.
+Subject to Section 3, the Licensor grants you a worldwide,
+royalty-free, non-exclusive license to use, copy, modify, and
+self-host the Licensed Work for Non-Commercial Use only.
 
----
+3. Commercial Use
 
-Notice
+Commercial Use of the Licensed Work requires a separate written
+Commercial License from the Licensor, agreed in advance, which will
+specify applicable royalty or fee terms. Using the Licensed Work for
+Commercial Use without such an agreement is a breach of this license
+and immediately terminates the rights granted in Section 2 for that
+use.
+
+4. Remedy
+
+If you engage in Commercial Use without a Commercial License, the
+Licensor may (a) terminate your rights under this license effective
+immediately, and (b) seek payment of reasonable royalties retroactive
+to the date Commercial Use began, in addition to any other remedies
+available under applicable law. The Licensor will provide written
+notice and a 30-day opportunity to cure (i.e., stop Commercial Use or
+enter a Commercial License) before pursuing further action, except in
+cases of repeated or willful violation.
+
+5. Change Date
+
+On August 10, 2030 ("Change Date"), Section 3 of this license
+terminates and the Licensed Work becomes available under the Apache
+License, Version 2.0 instead.
+
+6. Warranty Disclaimer
 
 The Licensed Work is provided "as is", without warranty of any kind,
 express or implied, including but not limited to the warranties of
@@ -40,9 +66,23 @@ claim, damages, or other liability arising from, out of, or in
 connection with the Licensed Work or the use or other dealings in the
 Licensed Work.
 
-For a Commercial License or royalty terms, contact: support@conceptgame.co.uk
+7. Governing Law
+
+This license is governed by the laws of England and Wales, without
+regard to conflict-of-law principles. Any dispute arising under this
+license is subject to the exclusive jurisdiction of the courts of
+England and Wales.
+
+8. Attribution
 
 This license is derived from the Business Source License 1.1 template
-published by MariaDB Corporation Ab, modified to add an explicit
-royalty requirement for commercial use. This is not a Business Source
-License and has not been approved by MariaDB.
+published by MariaDB Corporation Ab, modified to add explicit
+Commercial Use definitions, royalty terms, and remedies. It is not a
+Business Source License and has not been approved by MariaDB.
+
+---
+
+DISCLAIMER: This license is a draft template, not legal advice. It has
+not been reviewed by a lawyer. Before publishing or relying on it —
+particularly the royalty, remedy, and governing law terms — have it
+reviewed by a qualified lawyer in your jurisdiction.
