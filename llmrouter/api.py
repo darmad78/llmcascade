@@ -48,9 +48,16 @@ from llmrouter.metrics import log
 from llmrouter.provider_store import list_stored_providers, save_provider
 from llmrouter.queue_worker import RouterClient
 from llmrouter.rate_limiter import ApiKeyRateLimiter
-from llmrouter.registry import key_source, list_providers
+from llmrouter.registry import key_source, list_all_models, list_providers, provider_auth_env
 from llmrouter.secrets import resolve_secret_key
 from llmrouter.stats_store import NullStatsStore, StatsStore
+from llmrouter.model_store import (
+    delete_custom_model,
+    set_override,
+    upsert_custom_model,
+)
+from llmrouter.health import probe_model
+from llmrouter.registry import ModelConfig, Limits
 
 try:
     from fastapi import FastAPI, Form, HTTPException, Query, Request
@@ -83,6 +90,43 @@ class ProviderSaveBody(BaseModel):
     api_key: str | None = None
     free_paid: Literal["free", "paid"] = "free"
     clear_key: bool = False
+    add_free_key: str | None = None
+    add_paid_key: str | None = None
+    clear_free_keys: bool = False
+    clear_paid_keys: bool = False
+    csrf_token: str | None = None
+
+
+class ModelSaveBody(BaseModel):
+    name: str
+    provider: str
+    endpoint: str
+    auth_env_var: str | None = None
+    capabilities: list[str] = Field(default_factory=lambda: ["chat"])
+    priority: int = 100
+    weight: int = 1
+    enabled: bool = True
+    key_tier: Literal["free", "paid"] = "free"
+    limits: dict[str, int] = Field(
+        default_factory=lambda: {
+            "rpd": 100,
+            "rpm": 30,
+            "rps": 2,
+            "tpm": 60000,
+            "max_context": 8192,
+        }
+    )
+    free_tier_verified: bool = False
+    free_tier_note: str = ""
+    cascade: list[str] = Field(default_factory=list)
+    csrf_token: str | None = None
+
+
+class ModelOverrideBody(BaseModel):
+    name: str
+    enabled: bool | None = None
+    weight: int | None = None
+    key_tier: Literal["free", "paid"] | None = None
     csrf_token: str | None = None
 
 
@@ -429,11 +473,37 @@ async def admin_providers_data() -> dict[str, Any]:
                 "needs_account_id": info["needs_account_id"],
                 "key_set": src != "none",
                 "key_source": src,
+                "free_key_count": meta.get("free_key_count", 0),
+                "paid_key_count": meta.get("paid_key_count", 0),
                 "free_paid": meta.get("free_paid", "free"),
-                "masked": "••••••••" if src != "none" else "",
             }
         )
-    return {"providers": rows, "csrf_cookie": CSRF_COOKIE}
+    active = {m.name for m in (_client.registry if _client else [])}
+    models = []
+    for m in list_all_models():
+        models.append(
+            {
+                "name": m.name,
+                "provider": m.provider,
+                "endpoint": m.endpoint,
+                "auth_env_var": m.auth_env_var,
+                "priority": m.priority,
+                "weight": m.weight,
+                "enabled": m.enabled,
+                "key_tier": m.key_tier,
+                "custom": m.custom,
+                "active": m.name in active,
+                "capabilities": m.capabilities,
+                "limits": m.limits.model_dump(),
+            }
+        )
+    models.sort(key=lambda e: (e["priority"], e["name"]))
+    return {
+        "providers": rows,
+        "models": models,
+        "provider_options": sorted({p["provider"] for p in rows}),
+        "csrf_cookie": CSRF_COOKIE,
+    }
 
 
 @app.post("/admin/providers")
@@ -449,7 +519,106 @@ async def admin_providers_save(request: Request, body: ProviderSaveBody) -> dict
         api_key=body.api_key,
         free_paid=body.free_paid,
         clear_key=body.clear_key,
+        add_free_key=body.add_free_key,
+        add_paid_key=body.add_paid_key,
+        clear_free_keys=body.clear_free_keys,
+        clear_paid_keys=body.clear_paid_keys,
     )
     n = _require_client().reload_registry(allow_empty=True)
     events.record("provider keys reloaded", level="info", models=n, provider=provider)
     return {"ok": True, "models": n, "provider": provider}
+
+
+@app.post("/admin/models")
+async def admin_models_save(request: Request, body: ModelSaveBody) -> dict[str, Any]:
+    submitted = body.csrf_token or request.headers.get("x-csrf-token")
+    _require_csrf(request, submitted)
+    name = body.name.strip()
+    provider = body.provider.strip()
+    if not name or not provider or not body.endpoint.strip():
+        raise HTTPException(status_code=400, detail="name, provider, and endpoint are required")
+    auth_env = (body.auth_env_var or provider_auth_env(provider)).strip()
+    try:
+        limits = Limits.model_validate(body.limits)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid limits: {exc}") from exc
+    payload = {
+        "name": name,
+        "provider": provider,
+        "endpoint": body.endpoint.strip(),
+        "auth_env_var": auth_env,
+        "capabilities": body.capabilities or ["chat"],
+        "priority": body.priority,
+        "weight": max(1, body.weight),
+        "enabled": body.enabled,
+        "key_tier": body.key_tier,
+        "limits": limits.model_dump(),
+        "free_tier_verified": body.free_tier_verified,
+        "free_tier_note": body.free_tier_note,
+        "cascade": body.cascade,
+        "custom": True,
+    }
+    upsert_custom_model(payload)
+    set_override(name, enabled=body.enabled, weight=max(1, body.weight), key_tier=body.key_tier)
+
+    # Probe before accepting into live registry
+    model = ModelConfig.model_validate(payload)
+    client = _require_client()
+    probe = await probe_model(client._client, model)
+    if probe.state != "ok":
+        # Keep stored but report failure — operator can hide or fix keys
+        client.reload_registry(allow_empty=True)
+        return {
+            "ok": False,
+            "saved": True,
+            "test": probe.to_dict(),
+            "detail": f"model saved but probe failed: {probe.state} ({probe.message})",
+            "models": len(client.registry),
+        }
+    n = client.reload_registry(allow_empty=True)
+    events.record("custom model saved", level="info", model=name, provider=provider, models=n)
+    return {"ok": True, "saved": True, "test": probe.to_dict(), "models": n, "name": name}
+
+
+@app.post("/admin/models/override")
+async def admin_models_override(request: Request, body: ModelOverrideBody) -> dict[str, Any]:
+    submitted = body.csrf_token or request.headers.get("x-csrf-token")
+    _require_csrf(request, submitted)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    set_override(name, enabled=body.enabled, weight=body.weight, key_tier=body.key_tier)
+    n = _require_client().reload_registry(allow_empty=True)
+    events.record(
+        "model override",
+        level="info",
+        model=name,
+        enabled=body.enabled,
+        weight=body.weight,
+        models=n,
+    )
+    return {"ok": True, "models": n, "name": name}
+
+
+@app.post("/admin/models/delete")
+async def admin_models_delete(request: Request, body: ModelOverrideBody) -> dict[str, Any]:
+    submitted = body.csrf_token or request.headers.get("x-csrf-token")
+    _require_csrf(request, submitted)
+    name = body.name.strip()
+    if not delete_custom_model(name):
+        raise HTTPException(status_code=404, detail="custom model not found")
+    n = _require_client().reload_registry(allow_empty=True)
+    return {"ok": True, "models": n, "deleted": name}
+
+
+@app.post("/admin/models/test")
+async def admin_models_test(request: Request, body: ModelOverrideBody) -> dict[str, Any]:
+    submitted = body.csrf_token or request.headers.get("x-csrf-token")
+    _require_csrf(request, submitted)
+    name = body.name.strip()
+    model = next((m for m in list_all_models() if m.name == name), None)
+    if model is None:
+        raise HTTPException(status_code=404, detail="model not found")
+    client = _require_client()
+    probe = await probe_model(client._client, model)
+    return {"ok": probe.state == "ok", "test": probe.to_dict(), "name": name}

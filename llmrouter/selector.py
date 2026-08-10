@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
@@ -13,10 +14,15 @@ from llmrouter.registry import ModelConfig
 from llmrouter.stats_store import NullStatsStore, StatsStore
 from llmrouter.tokens import estimate_tokens
 
-Strategy = Literal["round_robin", "least_used", "priority_first"]
+Strategy = Literal["round_robin", "least_used", "priority_first", "weighted"]
 Executor = Callable[[ModelConfig, str], Awaitable[LLMResponse]]
 
 RETRY_SLEEP_S = 0.25
+
+
+def _weighted_pick(eligible: list[ModelConfig]) -> ModelConfig:
+    weights = [max(1, int(getattr(m, "weight", 1) or 1)) for m in eligible]
+    return random.choices(eligible, weights=weights, k=1)[0]
 
 
 class ModelSelector:
@@ -39,6 +45,8 @@ class ModelSelector:
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
         out: list[ModelConfig] = []
         for m in self.registry:
+            if not getattr(m, "enabled", True):
+                continue
             if capability not in m.capabilities:
                 continue
             if await self.rate_limiter.can_proceed(m.name, tokens_estimate):
@@ -50,7 +58,7 @@ class ModelSelector:
         if not eligible:
             return None
         if self.strategy == "priority_first":
-            return sorted(eligible, key=lambda m: m.priority)[0]
+            return sorted(eligible, key=lambda m: (m.priority, -m.weight))[0]
         if self.strategy == "least_used":
             budgets = []
             for m in eligible:
@@ -58,10 +66,12 @@ class ModelSelector:
                 budgets.append((rem.get("rpd", 0) + rem.get("rpm", 0), m))
             budgets.sort(key=lambda x: x[0], reverse=True)
             return budgets[0][1]
-        # round_robin over eligible pool
-        idx = self._rr_index % len(eligible)
-        self._rr_index += 1
-        return eligible[idx]
+        if self.strategy == "round_robin":
+            idx = self._rr_index % len(eligible)
+            self._rr_index += 1
+            return eligible[idx]
+        # weighted (default): chance ∝ weight
+        return _weighted_pick(eligible)
 
     async def peek(self, capability: str, tokens_estimate: int = 1) -> ModelConfig | None:
         """Next pick without advancing round-robin state (safe for dashboards)."""
@@ -69,7 +79,7 @@ class ModelSelector:
         if not eligible:
             return None
         if self.strategy == "priority_first":
-            return sorted(eligible, key=lambda m: m.priority)[0]
+            return sorted(eligible, key=lambda m: (m.priority, -m.weight))[0]
         if self.strategy == "least_used":
             budgets = []
             for m in eligible:
@@ -77,7 +87,9 @@ class ModelSelector:
                 budgets.append((rem.get("rpd", 0) + rem.get("rpm", 0), m))
             budgets.sort(key=lambda x: x[0], reverse=True)
             return budgets[0][1]
-        return eligible[self._rr_index % len(eligible)]
+        if self.strategy == "round_robin":
+            return eligible[self._rr_index % len(eligible)]
+        return _weighted_pick(eligible)
 
     async def _try_model(
         self,

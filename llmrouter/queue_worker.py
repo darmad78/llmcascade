@@ -45,7 +45,7 @@ class RouterClient:
         registry: list[ModelConfig] | None = None,
         *,
         models_path: str | None = None,
-        strategy: Strategy = "round_robin",
+        strategy: Strategy = "weighted",
         workers: int = 4,
         max_queue: int = 100,
         rate_limiter: RateLimiter | None = None,
@@ -250,7 +250,7 @@ class RouterClient:
         by_name.update({m.name: m for m in self.registry})
         for m in by_name.values():
             budget = budgets.get(m.name, {})
-            src = key_source(m.auth_env_var, provider=m.provider)
+            src = key_source(m.auth_env_var, provider=m.provider, key_tier=getattr(m, "key_tier", "free"))
             entry: dict[str, Any] = {
                 "name": m.name,
                 "provider": m.provider,
@@ -269,7 +269,10 @@ class RouterClient:
                 "key_set": src != "none" or key_is_set(m.provider),
                 "key_source": src,
                 "active": m.name in active_names,
-                "free_paid": get_free_paid(m.provider),
+                "free_paid": getattr(m, "key_tier", None) or get_free_paid(m.provider),
+                "weight": getattr(m, "weight", 1),
+                "enabled": getattr(m, "enabled", True),
+                "custom": getattr(m, "custom", False),
             }
             if m.cascade:
                 entry["cascade"] = list(m.cascade)

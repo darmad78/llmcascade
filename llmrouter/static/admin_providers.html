@@ -3,100 +3,70 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>llmrouter · providers</title>
+  <title>llmrouter · providers &amp; models</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --panel: #1a222c;
-      --line: #2a3544;
-      --text: #d6dde6;
-      --muted: #8b97a8;
-      --ok: #3dba7a;
-      --bad: #e05a5a;
+      --bg: #0f1419; --panel: #1a222c; --line: #2a3544; --text: #d6dde6;
+      --muted: #8b97a8; --ok: #3dba7a; --bad: #e05a5a; --warn: #d4a017;
       --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
       --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: var(--sans);
-      color: var(--text);
-      background:
-        radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%),
-        var(--bg);
+      margin: 0; min-height: 100vh; font-family: var(--sans); color: var(--text);
+      background: radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%), var(--bg);
     }
     header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 1.25rem 1.5rem 0.75rem;
-      border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem; border-bottom: 1px solid var(--line);
     }
     h1 { margin: 0; font-size: 1.35rem; }
+    h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
     .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     .nav-btn {
-      display: inline-block;
-      padding: 0.28rem 0.7rem;
-      border-radius: 4px;
-      border: 1px solid var(--line);
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 0.78rem;
-      font-weight: 550;
+      display: inline-block; padding: 0.28rem 0.7rem; border-radius: 4px;
+      border: 1px solid var(--line); color: var(--muted); text-decoration: none;
+      font-size: 0.78rem; font-weight: 550;
     }
-    .nav-btn.is-active {
-      color: var(--text);
-      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+    .nav-btn.is-active { color: var(--text); background: color-mix(in srgb, #3a6ea5 22%, var(--panel)); }
+    main { padding: 1rem 1.5rem 2rem; display: grid; gap: 1.5rem; }
+    .note { color: var(--muted); font-size: 0.85rem; margin: 0; max-width: 52rem; }
+    .warn { color: var(--warn); }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 0.85rem; }
+    th { color: var(--muted); font-size: 0.72rem; font-weight: 600; }
+    input, select {
+      padding: 0.35rem 0.45rem; border-radius: 4px; border: 1px solid var(--line);
+      background: #12181f; color: var(--text); font-family: var(--mono); font-size: 0.78rem;
     }
-    main { padding: 1rem 1.5rem 2rem; }
-    .note {
-      color: var(--muted);
-      font-size: 0.85rem;
-      margin: 0 0 1rem;
-      max-width: 48rem;
+    input[type="text"], input[type="password"], input[type="number"] { width: min(14rem, 100%); }
+    button {
+      padding: 0.35rem 0.65rem; border-radius: 4px; border: 1px solid #3a6ea5;
+      background: color-mix(in srgb, #3a6ea5 28%, var(--panel)); color: var(--text);
+      cursor: pointer; font-size: 0.78rem;
     }
-    .warn { color: #d4a017; }
-    table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
-    th, td { text-align: left; padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
-    th { color: var(--muted); font-size: 0.75rem; font-weight: 600; }
-    input[type="password"], input[type="text"] {
-      width: min(18rem, 100%);
-      padding: 0.4rem 0.5rem;
-      border-radius: 4px;
-      border: 1px solid var(--line);
-      background: #12181f;
-      color: var(--text);
-      font-family: var(--mono);
-      font-size: 0.8rem;
-    }
-    select {
-      padding: 0.35rem 0.45rem;
-      border-radius: 4px;
-      border: 1px solid var(--line);
-      background: #12181f;
-      color: var(--text);
-    }
-    button.save {
-      padding: 0.35rem 0.7rem;
-      border-radius: 4px;
-      border: 1px solid #3a6ea5;
-      background: color-mix(in srgb, #3a6ea5 30%, var(--panel));
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.8rem;
-    }
-    .src { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
-    .ok { color: var(--ok); }
-    .msg { margin-top: 0.75rem; font-size: 0.85rem; min-height: 1.2em; }
+    button.ghost { border-color: var(--line); background: transparent; color: var(--muted); }
+    button.danger { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); color: var(--bad); background: transparent; }
+    .src { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+    .pill { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; border: 1px solid var(--line); }
+    .pill.ok { color: var(--ok); }
+    .pill.off { color: var(--muted); }
+    .msg { min-height: 1.2em; font-size: 0.85rem; }
     .msg.err { color: var(--bad); }
     .msg.ok { color: var(--ok); }
+    .form-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.65rem; margin-bottom: 0.75rem;
+    }
+    .form-grid label { display: grid; gap: 0.25rem; font-size: 0.75rem; color: var(--muted); }
+    .form-grid input, .form-grid select { width: 100%; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    tr.hidden-row { opacity: 0.55; }
   </style>
 </head>
 <body>
   <header>
-    <h1>llmrouter <span style="color:var(--muted);font-weight:500">providers</span></h1>
+    <h1>llmrouter <span style="color:var(--muted);font-weight:500">providers &amp; models</span></h1>
     <nav class="page-nav">
       <a class="nav-btn" href="/dashboard">Status</a>
       <a class="nav-btn" href="/stats">Stats</a>
@@ -107,90 +77,270 @@
   </header>
   <main>
     <p class="note">
-      Keys are encrypted at rest (Fernet via HKDF-derived key). Environment variables always override UI-stored keys.
-      Cloudflare still needs <code>CLOUDFLARE_ACCOUNT_ID</code> in <code>.env</code>.
+      Env vars override UI keys. Each provider can hold multiple <strong>free</strong> and <strong>paid</strong> keys (rotated).
+      Models use weight as selection chance; hide disables routing. New models are probed on save.
     </p>
-    <p class="note warn">
-      Free/Paid is a display-only label — paid providers with a key remain eligible for automatic routing and can incur cost.
-    </p>
-    <div style="overflow-x:auto">
-      <table>
-        <thead>
-          <tr>
-            <th>Provider</th>
-            <th>Key source</th>
-            <th>API key</th>
-            <th>Free / Paid</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
+    <p class="note warn">Key tier on a model picks the free or paid key pool — it does not block spend by itself.</p>
+
+    <section class="panel">
+      <h2>Provider keys</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Source</th>
+              <th>Free keys</th>
+              <th>Add free</th>
+              <th>Paid keys</th>
+              <th>Add paid</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="provider-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Models (routing)</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Tier</th>
+              <th>Chance</th>
+              <th>Priority</th>
+              <th>Active</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="model-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Add custom model</h2>
+      <div class="form-grid" id="add-form">
+        <label>Name<input id="m-name" type="text" placeholder="my-org/model-id" /></label>
+        <label>Provider<select id="m-provider"></select></label>
+        <label>Endpoint<input id="m-endpoint" type="text" placeholder="https://…/chat/completions" /></label>
+        <label>Key tier
+          <select id="m-tier"><option value="free">free</option><option value="paid">paid</option></select>
+        </label>
+        <label>Chance (weight)<input id="m-weight" type="number" min="1" value="1" /></label>
+        <label>Priority<input id="m-priority" type="number" value="50" /></label>
+      </div>
+      <div class="actions">
+        <button type="button" id="m-save">Save &amp; test</button>
+      </div>
+    </section>
+
     <div class="msg" id="msg"></div>
   </main>
   <script>
     const CSRF_TOKEN = "__CSRF_TOKEN__";
+    const $ = (id) => document.getElementById(id);
     function csrfHeaders() {
       return { "Content-Type": "application/json", "X-CSRF-Token": CSRF_TOKEN };
     }
+    function setMsg(text, ok) {
+      const el = $("msg");
+      el.className = "msg " + (ok ? "ok" : "err");
+      el.textContent = text;
+    }
+
     async function load() {
       const res = await fetch("/admin/providers/data");
-      if (!res.ok) throw new Error("failed to load providers");
+      if (!res.ok) throw new Error("failed to load");
       const data = await res.json();
-      const tb = document.getElementById("rows");
-      tb.innerHTML = data.providers.map((p) => `
+      renderProviders(data.providers || []);
+      renderModels(data.models || []);
+      const sel = $("m-provider");
+      sel.innerHTML = (data.provider_options || []).map((p) => `<option value="${p}">${p}</option>`).join("");
+    }
+
+    function renderProviders(rows) {
+      $("provider-rows").innerHTML = rows.map((p) => `
         <tr data-provider="${p.provider}">
-          <td>
-            <strong>${p.provider}</strong>
-            <div class="src">${p.auth_env_var}${p.needs_account_id ? " + ACCOUNT_ID" : ""}</div>
-          </td>
+          <td><strong>${p.provider}</strong><div class="src">${p.auth_env_var}${p.needs_account_id ? " + ACCOUNT_ID" : ""}</div></td>
           <td class="src">${p.key_set ? p.key_source : "none"}</td>
+          <td class="src">${p.free_key_count || 0}
+            <button class="ghost" type="button" data-clear-free title="Clear free keys">clear</button>
+          </td>
+          <td><input type="password" data-free placeholder="paste free key" /></td>
+          <td class="src">${p.paid_key_count || 0}
+            <button class="ghost" type="button" data-clear-paid title="Clear paid keys">clear</button>
+          </td>
+          <td><input type="password" data-paid placeholder="paste paid key" /></td>
+          <td><button type="button" data-save-prov>Save</button></td>
+        </tr>
+      `).join("");
+      $("provider-rows").querySelectorAll("[data-save-prov]").forEach((btn) => {
+        btn.addEventListener("click", () => saveProvider(btn.closest("tr")));
+      });
+      $("provider-rows").querySelectorAll("[data-clear-free]").forEach((btn) => {
+        btn.addEventListener("click", () => clearKeys(btn.closest("tr").dataset.provider, "free"));
+      });
+      $("provider-rows").querySelectorAll("[data-clear-paid]").forEach((btn) => {
+        btn.addEventListener("click", () => clearKeys(btn.closest("tr").dataset.provider, "paid"));
+      });
+    }
+
+    async function saveProvider(tr) {
+      const provider = tr.dataset.provider;
+      const body = { provider, csrf_token: CSRF_TOKEN };
+      const free = tr.querySelector("[data-free]").value.trim();
+      const paid = tr.querySelector("[data-paid]").value.trim();
+      if (free) body.add_free_key = free;
+      if (paid) body.add_paid_key = paid;
+      if (!free && !paid) {
+        setMsg("Enter at least one key to add", false);
+        return;
+      }
+      setMsg("Saving keys…", true);
+      const res = await fetch("/admin/providers", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(data.detail || "save failed", false); return; }
+      setMsg(`Saved keys for ${provider}; ${data.models} active model(s).`, true);
+      await load();
+    }
+
+    async function clearKeys(provider, tier) {
+      const body = {
+        provider,
+        csrf_token: CSRF_TOKEN,
+        clear_free_keys: tier === "free",
+        clear_paid_keys: tier === "paid",
+      };
+      const res = await fetch("/admin/providers", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(data.detail || "clear failed", false); return; }
+      setMsg(`Cleared ${tier} keys for ${provider}`, true);
+      await load();
+    }
+
+    function renderModels(rows) {
+      $("model-rows").innerHTML = rows.map((m) => `
+        <tr class="${m.enabled ? "" : "hidden-row"}" data-name="${m.name}" data-custom="${m.custom}">
           <td>
-            <input type="password" placeholder="${p.key_set ? "•••••••• (leave blank to keep)" : "paste API key"}" data-key />
+            <strong>${m.name}</strong>
+            <div class="src">${m.provider}${m.custom ? " · custom" : ""}</div>
           </td>
           <td>
             <select data-tier>
-              <option value="free" ${p.free_paid === "free" ? "selected" : ""}>Free</option>
-              <option value="paid" ${p.free_paid === "paid" ? "selected" : ""}>Paid</option>
+              <option value="free" ${m.key_tier === "free" ? "selected" : ""}>free</option>
+              <option value="paid" ${m.key_tier === "paid" ? "selected" : ""}>paid</option>
             </select>
           </td>
-          <td><button class="save" type="button">Save</button></td>
+          <td><input type="number" min="1" value="${m.weight}" data-weight style="width:4.5rem" /></td>
+          <td class="src">${m.priority}</td>
+          <td><span class="pill ${m.active ? "ok" : "off"}">${m.active ? "yes" : "no"}</span>
+            ${m.enabled ? "" : '<span class="pill off">hidden</span>'}</td>
+          <td class="actions">
+            <button type="button" data-save-model>Save</button>
+            <button type="button" class="ghost" data-hide>${m.enabled ? "Hide" : "Show"}</button>
+            <button type="button" class="ghost" data-test>Test</button>
+            ${m.custom ? '<button type="button" class="danger" data-del>Delete</button>' : ""}
+          </td>
         </tr>
       `).join("");
-      tb.querySelectorAll("button.save").forEach((btn) => {
-        btn.addEventListener("click", () => saveRow(btn.closest("tr")));
+      $("model-rows").querySelectorAll("[data-save-model]").forEach((btn) => {
+        btn.addEventListener("click", () => overrideModel(btn.closest("tr"), {}));
+      });
+      $("model-rows").querySelectorAll("[data-hide]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const tr = btn.closest("tr");
+          const currently = !tr.classList.contains("hidden-row") || btn.textContent === "Hide";
+          // enabled flag from button label
+          const enable = btn.textContent.trim() === "Show";
+          overrideModel(tr, { enabled: enable });
+        });
+      });
+      $("model-rows").querySelectorAll("[data-test]").forEach((btn) => {
+        btn.addEventListener("click", () => testModel(btn.closest("tr").dataset.name));
+      });
+      $("model-rows").querySelectorAll("[data-del]").forEach((btn) => {
+        btn.addEventListener("click", () => deleteModel(btn.closest("tr").dataset.name));
       });
     }
-    async function saveRow(tr) {
-      const msg = document.getElementById("msg");
-      msg.className = "msg";
-      msg.textContent = "Saving…";
-      const provider = tr.dataset.provider;
-      const api_key = tr.querySelector("[data-key]").value;
-      const free_paid = tr.querySelector("[data-tier]").value;
-      const body = { provider, free_paid, csrf_token: CSRF_TOKEN };
-      if (api_key) body.api_key = api_key;
-      const res = await fetch("/admin/providers", {
-        method: "POST",
-        headers: csrfHeaders(),
-        body: JSON.stringify(body),
-      });
+
+    async function overrideModel(tr, extra) {
+      const name = tr.dataset.name;
+      const body = {
+        name,
+        csrf_token: CSRF_TOKEN,
+        weight: Number(tr.querySelector("[data-weight]").value || 1),
+        key_tier: tr.querySelector("[data-tier]").value,
+        ...extra,
+      };
+      setMsg(`Updating ${name}…`, true);
+      const res = await fetch("/admin/models/override", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        msg.className = "msg err";
-        msg.textContent = data.detail || "save failed";
-        return;
-      }
-      msg.className = "msg ok";
-      msg.textContent = `Saved ${provider}; registry now has ${data.models} active model(s).`;
-      tr.querySelector("[data-key]").value = "";
+      if (!res.ok) { setMsg(data.detail || "override failed", false); return; }
+      setMsg(`Updated ${name}; ${data.models} active.`, true);
       await load();
     }
-    load().catch((e) => {
-      document.getElementById("msg").className = "msg err";
-      document.getElementById("msg").textContent = String(e);
+
+    async function testModel(name) {
+      setMsg(`Testing ${name}…`, true);
+      const res = await fetch("/admin/models/test", {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify({ name, csrf_token: CSRF_TOKEN }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(data.detail || "test failed", false); return; }
+      const t = data.test || {};
+      setMsg(`${name}: ${t.state} — ${t.message || ""} (${t.latency_ms || 0}ms)`, data.ok);
+    }
+
+    async function deleteModel(name) {
+      if (!confirm(`Delete custom model ${name}?`)) return;
+      const res = await fetch("/admin/models/delete", {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify({ name, csrf_token: CSRF_TOKEN }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(data.detail || "delete failed", false); return; }
+      setMsg(`Deleted ${name}`, true);
+      await load();
+    }
+
+    $("m-save").addEventListener("click", async () => {
+      const body = {
+        name: $("m-name").value.trim(),
+        provider: $("m-provider").value,
+        endpoint: $("m-endpoint").value.trim(),
+        key_tier: $("m-tier").value,
+        weight: Number($("m-weight").value || 1),
+        priority: Number($("m-priority").value || 50),
+        enabled: true,
+        csrf_token: CSRF_TOKEN,
+      };
+      if (!body.name || !body.endpoint) {
+        setMsg("Name and endpoint required", false);
+        return;
+      }
+      setMsg("Saving & probing model…", true);
+      const res = await fetch("/admin/models", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(data.detail || "save failed", false); return; }
+      const t = data.test || {};
+      if (data.ok) {
+        setMsg(`Saved ${body.name}; probe ${t.state}. Active models: ${data.models}`, true);
+        $("m-name").value = "";
+        $("m-endpoint").value = "";
+      } else {
+        setMsg(data.detail || `Saved but probe failed: ${t.state} ${t.message || ""}`, false);
+      }
+      await load();
     });
+
+    load().catch((e) => setMsg(String(e), false));
   </script>
 </body>
 </html>

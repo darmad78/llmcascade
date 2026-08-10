@@ -63,7 +63,7 @@ def _classify(status_code: int | None, exc: Exception | None) -> tuple[str, str]
 
 
 async def probe_model(client: httpx.AsyncClient, model: ModelConfig) -> HealthStatus:
-    api_key = resolve_auth_env(model.auth_env_var)
+    api_key = resolve_auth_env(model.auth_env_var, provider=model.provider, key_tier=getattr(model, "key_tier", "free"))
     if not api_key:
         return HealthStatus(
             state="auth_error",
