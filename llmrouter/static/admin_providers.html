@@ -62,6 +62,18 @@
     .form-grid input, .form-grid select { width: 100%; }
     .actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     tr.hidden-row { opacity: 0.55; }
+    tr.group-row td {
+      background: color-mix(in srgb, var(--panel) 70%, #0a0e12);
+      border-bottom: 1px solid var(--line);
+      padding: 0.65rem 0.6rem;
+    }
+    tr.group-row button.group-toggle {
+      border: none; background: transparent; color: var(--muted);
+      padding: 0 0.35rem 0 0; font-family: var(--mono); font-size: 0.85rem;
+      cursor: pointer; min-width: 1.2rem;
+    }
+    tr.model-row.is-collapsed { display: none; }
+    tr.model-row td:first-child { padding-left: 1.5rem; }
   </style>
 </head>
 <body>
@@ -77,8 +89,8 @@
   </header>
   <main>
     <p class="note">
-      Env vars override UI keys. Each provider can hold multiple <strong>free</strong> and <strong>paid</strong> keys (rotated).
-      Models use weight as selection chance; hide disables routing. New models are probed on save.
+      Env vars are fallback when no UI keys. Each provider can hold multiple <strong>free</strong> and <strong>paid</strong> keys (rotated).
+      Models are grouped by provider (collapsed by default). Cascade families (e.g. gemini) list each model id; chance reorders cascade tries, hide drops that id.
     </p>
     <p class="note warn">Key tier on a model picks the free or paid key pool — it does not block spend by itself.</p>
 
@@ -248,38 +260,70 @@
     }
 
     function renderModels(rows) {
-      $("model-rows").innerHTML = rows.map((m) => `
-        <tr class="${m.enabled ? "" : "hidden-row"}" data-name="${m.name}" data-custom="${m.custom}">
-          <td>
-            <strong>${m.name}</strong>
-            <div class="src">${m.provider}${m.custom ? " · custom" : ""}</div>
-          </td>
-          <td>
-            <select data-tier>
-              <option value="free" ${m.key_tier === "free" ? "selected" : ""}>free</option>
-              <option value="paid" ${m.key_tier === "paid" ? "selected" : ""}>paid</option>
-            </select>
-          </td>
-          <td><input type="number" min="1" value="${m.weight}" data-weight style="width:4.5rem" /></td>
-          <td class="src">${m.priority}</td>
-          <td><span class="pill ${m.active ? "ok" : "off"}">${m.active ? "yes" : "no"}</span>
-            ${m.enabled ? "" : '<span class="pill off">hidden</span>'}</td>
-          <td class="actions">
-            <button type="button" data-save-model>Save</button>
-            <button type="button" class="ghost" data-hide>${m.enabled ? "Hide" : "Show"}</button>
-            <button type="button" class="ghost" data-test>Test</button>
-            ${m.custom ? '<button type="button" class="danger" data-del>Delete</button>' : ""}
-          </td>
-        </tr>
-      `).join("");
+      const byProv = {};
+      for (const m of rows) {
+        (byProv[m.provider] ||= []).push(m);
+      }
+      const providers = Object.keys(byProv).sort();
+      const parts = [];
+      for (const provider of providers) {
+        const group = byProv[provider];
+        parts.push(`
+          <tr class="group-row" data-provider-group="${provider}">
+            <td colspan="6">
+              <button type="button" class="group-toggle" aria-expanded="false" data-toggle-group="${provider}">▸</button>
+              <strong>${provider}</strong>
+              <span class="src"> · ${group.length} model${group.length === 1 ? "" : "s"}</span>
+            </td>
+          </tr>`);
+        for (const m of group) {
+          const cascadeNote = m.is_cascade_member ? ` · cascade of ${m.cascade_of}` : "";
+          parts.push(`
+          <tr class="model-row is-collapsed ${m.enabled ? "" : "hidden-row"}"
+              data-name="${m.name}" data-custom="${m.custom}" data-group="${provider}"
+              data-cascade-member="${m.is_cascade_member ? "1" : "0"}">
+            <td>
+              <strong>${m.name}</strong>
+              <div class="src">${m.provider}${m.custom ? " · custom" : ""}${cascadeNote}</div>
+            </td>
+            <td>
+              <select data-tier>
+                <option value="free" ${m.key_tier === "free" ? "selected" : ""}>free</option>
+                <option value="paid" ${m.key_tier === "paid" ? "selected" : ""}>paid</option>
+              </select>
+            </td>
+            <td><input type="number" min="1" value="${m.weight}" data-weight style="width:4.5rem" /></td>
+            <td class="src">${m.priority}</td>
+            <td><span class="pill ${m.active ? "ok" : "off"}">${m.active ? "yes" : "no"}</span>
+              ${m.enabled ? "" : '<span class="pill off">hidden</span>'}</td>
+            <td class="actions">
+              <button type="button" data-save-model>Save</button>
+              <button type="button" class="ghost" data-hide>${m.enabled ? "Hide" : "Show"}</button>
+              <button type="button" class="ghost" data-test>Test</button>
+              ${m.custom ? '<button type="button" class="danger" data-del>Delete</button>' : ""}
+            </td>
+          </tr>`);
+        }
+      }
+      $("model-rows").innerHTML = parts.join("");
+      $("model-rows").querySelectorAll("[data-toggle-group]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const provider = btn.getAttribute("data-toggle-group");
+          const open = btn.getAttribute("aria-expanded") === "true";
+          const next = !open;
+          btn.setAttribute("aria-expanded", next ? "true" : "false");
+          btn.textContent = next ? "▾" : "▸";
+          $("model-rows").querySelectorAll(`tr.model-row[data-group="${provider}"]`).forEach((tr) => {
+            tr.classList.toggle("is-collapsed", !next);
+          });
+        });
+      });
       $("model-rows").querySelectorAll("[data-save-model]").forEach((btn) => {
         btn.addEventListener("click", () => overrideModel(btn.closest("tr"), {}));
       });
       $("model-rows").querySelectorAll("[data-hide]").forEach((btn) => {
         btn.addEventListener("click", () => {
           const tr = btn.closest("tr");
-          const currently = !tr.classList.contains("hidden-row") || btn.textContent === "Hide";
-          // enabled flag from button label
           const enable = btn.textContent.trim() === "Show";
           overrideModel(tr, { enabled: enable });
         });

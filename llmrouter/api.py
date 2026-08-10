@@ -495,8 +495,41 @@ async def admin_providers_data() -> dict[str, Any]:
             }
         )
     active = {m.name for m in (_client.registry if _client else [])}
+    try:
+        from llmrouter.model_store import get_override
+    except Exception:  # noqa: BLE001
+        get_override = lambda _n: {}  # noqa: E731
     models = []
     for m in list_all_models():
+        parent_active = m.name in active
+        if m.cascade:
+            for mid in m.cascade:
+                ov = get_override(mid)
+                enabled = True if "enabled" not in ov else bool(ov["enabled"])
+                try:
+                    weight = max(1, int(ov.get("weight", 1)))
+                except (TypeError, ValueError):
+                    weight = 1
+                key_tier = ov.get("key_tier") if ov.get("key_tier") in ("free", "paid") else m.key_tier
+                models.append(
+                    {
+                        "name": mid,
+                        "provider": m.provider,
+                        "endpoint": m.endpoint,
+                        "auth_env_var": m.auth_env_var,
+                        "priority": m.priority,
+                        "weight": weight,
+                        "enabled": enabled,
+                        "key_tier": key_tier,
+                        "custom": False,
+                        "active": parent_active and enabled,
+                        "capabilities": m.capabilities,
+                        "limits": m.limits.model_dump(),
+                        "cascade_of": m.name,
+                        "is_cascade_member": True,
+                    }
+                )
+            continue
         models.append(
             {
                 "name": m.name,
@@ -511,9 +544,11 @@ async def admin_providers_data() -> dict[str, Any]:
                 "active": m.name in active,
                 "capabilities": m.capabilities,
                 "limits": m.limits.model_dump(),
+                "cascade_of": None,
+                "is_cascade_member": False,
             }
         )
-    models.sort(key=lambda e: (e["priority"], e["name"]))
+    models.sort(key=lambda e: (e["provider"], e["priority"], e["name"]))
     return {
         "providers": rows,
         "models": models,
@@ -637,7 +672,11 @@ async def admin_models_test(request: Request, body: ModelOverrideBody) -> dict[s
     name = body.name.strip()
     model = next((m for m in list_all_models() if m.name == name), None)
     if model is None:
-        raise HTTPException(status_code=404, detail="model not found")
+        parent = next((m for m in list_all_models() if name in (m.cascade or [])), None)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        # Probe a specific cascade member id using the parent endpoint/auth.
+        model = parent.model_copy(update={"name": name, "cascade": []})
     client = _require_client()
     probe = await probe_model(client._client, model)
     return {"ok": probe.state == "ok", "test": probe.to_dict(), "name": name}

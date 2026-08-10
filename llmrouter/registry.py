@@ -126,6 +126,11 @@ def _missing_auth_label(auth_env_var: str) -> str:
 def _model_ready(model: ModelConfig) -> bool:
     if not model.enabled:
         return False
+    if model.cascade:
+        from llmrouter.cascade import effective_cascade_members
+
+        if not effective_cascade_members(model.cascade):
+            return False
     if not resolve_auth_env(model.auth_env_var, provider=model.provider, key_tier=model.key_tier):
         return False
     if model.provider == "cloudflare" and not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
@@ -152,6 +157,13 @@ def _apply_overrides(models: list[ModelConfig]) -> list[ModelConfig]:
                 pass
         if ov.get("key_tier") in ("free", "paid"):
             data["key_tier"] = ov["key_tier"]
+        elif m.cascade:
+            # Cascade members share the parent key pool — inherit tier from a member override.
+            for mid in m.cascade:
+                mov = overrides.get(mid) or {}
+                if mov.get("key_tier") in ("free", "paid"):
+                    data["key_tier"] = mov["key_tier"]
+                    break
         out.append(ModelConfig.model_validate(data))
     return out
 

@@ -161,6 +161,29 @@ def resolve_cascade_order(configured: list[str] | None = None) -> list[str]:
     return out
 
 
+def effective_cascade_members(configured: list[str] | None = None) -> list[str]:
+    """Cascade IDs after admin Hide + weight reorder (higher weight tried first)."""
+    base = resolve_cascade_order(configured)
+    try:
+        from llmrouter.model_store import load_overrides
+
+        overrides = load_overrides()
+    except Exception:  # noqa: BLE001
+        overrides = {}
+    scored: list[tuple[int, int, str]] = []
+    for i, mid in enumerate(base):
+        ov = overrides.get(mid) or {}
+        if ov.get("enabled") is False:
+            continue
+        try:
+            weight = max(1, int(ov.get("weight", 1)))
+        except (TypeError, ValueError):
+            weight = 1
+        scored.append((-weight, i, mid))
+    scored.sort()
+    return [mid for _, _, mid in scored]
+
+
 def gemini_endpoint(base_endpoint: str, model_id: str) -> str:
     if "{model}" in base_endpoint:
         return base_endpoint.replace("{model}", model_id)
@@ -383,12 +406,17 @@ class ModelCooldownTracker:
 def cascade_manager_from_registry(registry: list[ModelConfig]) -> GeminiCascadeManager | None:
     for m in registry:
         if m.provider == "gemini" and m.cascade:
-            mgr = GeminiCascadeManager(m.cascade)
+            members = effective_cascade_members(m.cascade)
+            if not members:
+                continue
+            mgr = GeminiCascadeManager(members)
             mgr.bind_logical(m.name)
             return mgr
         if m.provider == "gemini" and not m.cascade:
-            # single-model gemini row — treat name as one-element cascade
-            mgr = GeminiCascadeManager([m.name])
+            members = effective_cascade_members([m.name])
+            if not members:
+                continue
+            mgr = GeminiCascadeManager(members)
             mgr.bind_logical(m.name)
             return mgr
     return None

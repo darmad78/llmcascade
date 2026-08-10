@@ -87,6 +87,19 @@ def test_resolve_cascade_prefers_env(monkeypatch):
     assert order.count("gemini-2.0-flash") == 1
 
 
+def test_effective_cascade_hides_and_reorders(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLMROUTER_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    from llmrouter.cascade import effective_cascade_members
+    from llmrouter.model_store import set_override
+
+    base = ["a", "b", "c"]
+    assert effective_cascade_members(base) == base
+    set_override("b", enabled=False)
+    set_override("c", weight=10)
+    assert effective_cascade_members(base) == ["c", "a"]
+
+
 @pytest.mark.asyncio
 async def test_quota_cools_only_failed_model():
     mgr = GeminiCascadeManager(["a", "b", "c"])
