@@ -7,7 +7,7 @@ name = "llmrouter"
 version = "0.1.0"
 description = "Free-tier LLM dispatcher with live rate-limit budgets"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "BUSL-1.1-derived / source-available" }
 requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2",

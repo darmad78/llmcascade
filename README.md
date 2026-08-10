@@ -349,8 +349,12 @@ llmrouter/
 - llmrouter is **not affiliated with, endorsed by, or sponsored by** any listed LLM provider (Google, Groq, OpenRouter, Together, Cerebras, Mistral, SambaNova, DeepSeek, Hugging Face, Cloudflare, Cohere, NVIDIA, DeepInfra, or others).
 - **You** are responsible for complying with each provider’s Terms of Service, rate limits, and acceptable-use policies when you configure and use API keys with this software.
 - **BYOK:** This project does not provide or resell API access. You must supply your own authorized credentials.
-- Software is provided **“as is”** with **no warranty**, as stated in the [MIT License](LICENSE). Use at your own risk — including account suspensions, rate-limit bans, service disruptions, or unexpected billing.
+- Software is provided **“as is”** with **no warranty**, as stated in [LICENSE](LICENSE). Use at your own risk — including account suspensions, rate-limit bans, service disruptions, or unexpected billing.
 
 ## License
 
-Distributed under the [MIT License](LICENSE).
+**BUSL-1.1-derived / source-available** — see [LICENSE](LICENSE) (draft; not legal advice) and [LICENSING-FAQ.md](LICENSING-FAQ.md).
+
+- **Free** for personal, educational, and internal **non-revenue** use (including self-hosting for that use).
+- **Commercial / revenue-generating** use (including hosted/SaaS or inclusion in a paid product) requires a separate paid **Commercial License** — contact **support@conceptgame.co.uk** before that use begins.
+- On **10 August 2030** (Change Date), the Licensed Work automatically becomes available under **Apache License, Version 2.0**.

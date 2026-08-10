@@ -1,21 +1,48 @@
-MIT License
+# DRAFT — not legal advice. Have a lawyer review this license (especially the
+# royalty / commercial-use clause) before you rely on it.
 
+llmrouter Source-Available License v1.0 (based on Business Source License 1.1)
 Copyright (c) 2026 Dario Maddaluno
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Licensor: Dario Maddaluno
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Licensed Work: llmrouter (this repository and all its source code)
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Additional Use Grant: You may use, copy, modify, and self-host the
+Licensed Work free of charge for personal, educational, and internal
+non-revenue-generating purposes.
+
+Any use of the Licensed Work — or a modified or derivative version of
+it — that is part of, or supports, a product or service for which you
+charge money, accept payment, or otherwise generate revenue (including
+but not limited to a hosted/managed service, SaaS offering, or
+inclusion in a paid product) requires a separate paid Commercial
+License from the Licensor, including payment of royalties on terms to
+be agreed with the Licensor before such use begins.
+
+Change Date: August 10, 2030
+
+Change License: Apache License, Version 2.0
+
+On the Change Date, the Additional Use Grant above terminates and the
+Licensed Work automatically becomes available under the Change License
+instead of this license.
+
+---
+
+Notice
+
+The Licensed Work is provided "as is", without warranty of any kind,
+express or implied, including but not limited to the warranties of
+merchantability, fitness for a particular purpose, and
+noninfringement. In no event shall the Licensor be liable for any
+claim, damages, or other liability arising from, out of, or in
+connection with the Licensed Work or the use or other dealings in the
+Licensed Work.
+
+For a Commercial License or royalty terms, contact: support@conceptgame.co.uk
+
+This license is derived from the Business Source License 1.1 template
+published by MariaDB Corporation Ab, modified to add an explicit
+royalty requirement for commercial use. This is not a Business Source
+License and has not been approved by MariaDB.
