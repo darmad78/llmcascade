@@ -194,6 +194,30 @@
       color: var(--warn);
     }
     #mongo-banner[hidden] { display: none; }
+    .svc-filters {
+      display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+      margin: 0 0 0.75rem; padding: 0.65rem 0.75rem;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    }
+    .svc-filters .hint { color: var(--muted); font-size: 0.75rem; margin-right: 0.35rem; }
+    .svc-chip {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      padding: 0.22rem 0.55rem; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--line); color: var(--muted); font-size: 0.78rem;
+      font-family: var(--mono); user-select: none;
+      background: transparent;
+    }
+    .svc-chip input { accent-color: #3a6ea5; margin: 0; }
+    .svc-chip.on {
+      color: var(--text);
+      border-color: color-mix(in srgb, #3a6ea5 45%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 18%, var(--panel));
+    }
+    .svc-filters button.ghost {
+      padding: 0.22rem 0.55rem; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--line); background: transparent; color: var(--muted);
+      font-size: 0.75rem;
+    }
   </style>
 </head>
 <body>
@@ -226,6 +250,12 @@
       <div class="kpi"><div class="label">Success rate</div><div class="value" id="kpi-ok">—</div></div>
       <div class="kpi"><div class="label">Avg latency</div><div class="value" id="kpi-lat">—</div></div>
     </section>
+    <section class="svc-filters" id="service-filters" hidden>
+      <span class="hint">Services (toggle):</span>
+      <span id="service-toggles"></span>
+      <button type="button" class="ghost" id="svc-all">All</button>
+      <button type="button" class="ghost" id="svc-none">None</button>
+    </section>
     <section class="charts">
       <div class="panel">
         <h2>Hourly requests by model</h2>
@@ -244,11 +274,15 @@
         <div class="chart-wrap"><canvas id="chart-perf"></canvas></div>
       </div>
       <div class="panel">
-        <h2>Hourly requests by notes</h2>
+        <h2>Hourly requests by service</h2>
         <div class="chart-wrap"><canvas id="chart-hourly-notes"></canvas></div>
       </div>
       <div class="panel">
-        <h2>Notes usage share</h2>
+        <h2>Daily requests by service</h2>
+        <div class="chart-wrap"><canvas id="chart-daily-notes"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Service usage share</h2>
         <div class="chart-wrap"><canvas id="chart-notes-usage"></canvas></div>
       </div>
     </section>
@@ -292,12 +326,12 @@
       </div>
     </section>
     <section class="panel">
-      <h2>All-time by notes</h2>
+      <h2>All-time by service</h2>
       <div style="overflow-x:auto">
         <table>
           <thead>
             <tr>
-              <th>Notes</th>
+              <th>Service</th>
               <th>Requests</th>
               <th>Failures</th>
               <th>Success</th>
@@ -319,6 +353,8 @@
     ];
     let range = "7d";
     const charts = {};
+    const serviceVisible = {};
+    let lastStats = null;
 
     function pct(v) {
       return `${(v * 100).toFixed(1)}%`;
@@ -341,7 +377,7 @@
       Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
     }
 
-    function stackedLine(ctx, labels, datasets) {
+    function stackedLine(ctx, labels, datasets, { serviceLegend = false } = {}) {
       return new Chart(ctx, {
         type: "line",
         data: { labels, datasets },
@@ -349,7 +385,20 @@
           responsive: true,
           maintainAspectRatio: false,
           interaction: { mode: "index", intersect: false },
-          plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { boxWidth: 10, font: { size: 11 } },
+              onClick: serviceLegend
+                ? (_e, legendItem) => {
+                    const name = legendItem.text;
+                    serviceVisible[name] = serviceVisible[name] === false;
+                    syncServiceToggles();
+                    renderServiceCharts(lastStats);
+                  }
+                : undefined,
+            },
+          },
           scales: {
             x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
             y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
@@ -358,7 +407,7 @@
       });
     }
 
-    function doughnut(ctx, labels, values) {
+    function doughnut(ctx, labels, values, { serviceLegend = false } = {}) {
       return new Chart(ctx, {
         type: "doughnut",
         data: {
@@ -372,7 +421,20 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { boxWidth: 10, font: { size: 11 } },
+              onClick: serviceLegend
+                ? (_e, legendItem) => {
+                    const name = legendItem.text;
+                    serviceVisible[name] = serviceVisible[name] === false;
+                    syncServiceToggles();
+                    renderServiceCharts(lastStats);
+                  }
+                : undefined,
+            },
+          },
         },
       });
     }
@@ -402,10 +464,10 @@
       });
     }
 
-    function seriesDatasets(series, key) {
+    function seriesDatasets(series, key, { dateOnly = false } = {}) {
       const labels = series.map((s) => {
         const d = new Date(s.bucket);
-        return key === "by_provider"
+        return dateOnly
           ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
           : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" });
       });
@@ -414,17 +476,60 @@
         Object.keys(s[key] || {}).forEach((n) => names.add(n));
       }
       const ordered = [...names].sort();
-      const datasets = ordered.map((name, i) => ({
-        label: name,
-        data: series.map((s) => (s[key][name] && s[key][name].requests) || 0),
-        borderColor: PALETTE[i % PALETTE.length],
-        backgroundColor: PALETTE[i % PALETTE.length] + "55",
-        fill: true,
-        tension: 0.25,
-        pointRadius: 0,
-        borderWidth: 1.5,
-      }));
-      return { labels, datasets };
+      const datasets = ordered
+        .filter((name) => key !== "by_notes" || serviceVisible[name] !== false)
+        .map((name) => {
+          const i = ordered.indexOf(name);
+          return {
+            label: name,
+            data: series.map((s) => (s[key][name] && s[key][name].requests) || 0),
+            borderColor: PALETTE[i % PALETTE.length],
+            backgroundColor: PALETTE[i % PALETTE.length] + "55",
+            fill: true,
+            tension: 0.25,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          };
+        });
+      return { labels, datasets, names: ordered };
+    }
+
+    function collectServiceNames(data) {
+      const names = new Set();
+      for (const s of (data && data.series && data.series.hourly) || []) {
+        Object.keys(s.by_notes || {}).forEach((n) => names.add(n));
+      }
+      for (const s of (data && data.series && data.series.daily) || []) {
+        Object.keys(s.by_notes || {}).forEach((n) => names.add(n));
+      }
+      for (const n of (data && data.totals && data.totals.notes) || []) names.add(n.name);
+      return [...names].sort();
+    }
+
+    function syncServiceToggles() {
+      const names = collectServiceNames(lastStats || {});
+      const wrap = $("service-filters");
+      const host = $("service-toggles");
+      if (!names.length) {
+        wrap.hidden = true;
+        host.innerHTML = "";
+        return;
+      }
+      wrap.hidden = false;
+      host.innerHTML = names.map((name) => {
+        const on = serviceVisible[name] !== false;
+        return `<label class="svc-chip ${on ? "on" : ""}">
+          <input type="checkbox" data-svc="${escapeHtml(name)}" ${on ? "checked" : ""} />
+          ${escapeHtml(name)}
+        </label>`;
+      }).join("");
+      host.querySelectorAll("input[data-svc]").forEach((input) => {
+        input.addEventListener("change", () => {
+          serviceVisible[input.getAttribute("data-svc")] = input.checked;
+          renderServiceCharts(lastStats);
+          syncServiceToggles();
+        });
+      });
     }
 
     function renderTables(data) {
@@ -481,13 +586,38 @@
       $("kpi-lat").textContent = req ? `${(latSum / req).toFixed(0)} ms` : "—";
     }
 
+    function renderServiceCharts(data) {
+      if (!data) return;
+      const hourlyNotes = seriesDatasets(data.series.hourly || [], "by_notes");
+      destroyChart("hourlyNotes");
+      charts.hourlyNotes = stackedLine(
+        $("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets, { serviceLegend: true },
+      );
+
+      const dailyNotes = seriesDatasets(data.series.daily || [], "by_notes", { dateOnly: true });
+      destroyChart("dailyNotes");
+      charts.dailyNotes = stackedLine(
+        $("chart-daily-notes"), dailyNotes.labels, dailyNotes.datasets, { serviceLegend: true },
+      );
+
+      const notesPerf = (data.performance.notes || data.totals.notes || [])
+        .filter((n) => serviceVisible[n.name] !== false);
+      destroyChart("notesUsage");
+      charts.notesUsage = doughnut(
+        $("chart-notes-usage"),
+        notesPerf.map((n) => n.name),
+        notesPerf.map((n) => n.requests),
+        { serviceLegend: true },
+      );
+    }
+
     function renderCharts(data) {
       chartDefaults();
       const hourly = seriesDatasets(data.series.hourly || [], "by_model");
       destroyChart("hourly");
       charts.hourly = stackedLine($("chart-hourly-model"), hourly.labels, hourly.datasets);
 
-      const daily = seriesDatasets(data.series.daily || [], "by_provider");
+      const daily = seriesDatasets(data.series.daily || [], "by_provider", { dateOnly: true });
       destroyChart("daily");
       charts.daily = stackedLine($("chart-daily-provider"), daily.labels, daily.datasets);
 
@@ -507,17 +637,7 @@
         "avg latency ms",
       );
 
-      const hourlyNotes = seriesDatasets(data.series.hourly || [], "by_notes");
-      destroyChart("hourlyNotes");
-      charts.hourlyNotes = stackedLine($("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets);
-
-      const notesPerf = data.performance.notes || data.totals.notes || [];
-      destroyChart("notesUsage");
-      charts.notesUsage = doughnut(
-        $("chart-notes-usage"),
-        notesPerf.map((n) => n.name),
-        notesPerf.map((n) => n.requests),
-      );
+      renderServiceCharts(data);
     }
 
     function escapeHtml(s) {
@@ -532,6 +652,10 @@
       const res = await fetch(`/v1/stats?range=${encodeURIComponent(range)}`);
       if (!res.ok) throw new Error(`stats ${res.status}`);
       const data = await res.json();
+      lastStats = data;
+      for (const name of collectServiceNames(data)) {
+        if (!(name in serviceVisible)) serviceVisible[name] = true;
+      }
       $("mongo-banner").hidden = !!data.configured;
       if (!data.configured) {
         const detail = data.detail || "Set MONGODB_URI to enable historical stats";
@@ -543,6 +667,7 @@
       renderKpis(data);
       renderTables(data);
       if (typeof Chart !== "undefined") renderCharts(data);
+      syncServiceToggles();
     }
 
     $("range").addEventListener("click", (ev) => {
@@ -553,6 +678,17 @@
         b.classList.toggle("active", b === btn);
       }
       load().catch((e) => { $("meta").textContent = String(e); });
+    });
+
+    $("svc-all").addEventListener("click", () => {
+      for (const name of collectServiceNames(lastStats || {})) serviceVisible[name] = true;
+      syncServiceToggles();
+      renderServiceCharts(lastStats);
+    });
+    $("svc-none").addEventListener("click", () => {
+      for (const name of collectServiceNames(lastStats || {})) serviceVisible[name] = false;
+      syncServiceToggles();
+      renderServiceCharts(lastStats);
     });
 
     function boot() {

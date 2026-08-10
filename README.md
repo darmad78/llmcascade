@@ -236,7 +236,7 @@ Set `LLMROUTER_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: ht
 | `GET` | `/admin/providers` | Provider key management (login required) |
 | `GET` | `/admin/change-password` | Forced on first login |
 
-Optional `notes` is free text (e.g. `"app"`, `"system"`). It is logged on request events, never forwarded to providers, and rolled into Mongo stats under `(none)` when omitted.
+Optional `notes` is free text tagging the **calling service** (e.g. `"finwin:tr"`, `"app"`). It is logged on request events, never forwarded to providers, and rolled into Mongo service stats under `(none)` when omitted. The `/stats` page shows hourly/daily charts by service with interactive toggles.
 
 Example:
 
