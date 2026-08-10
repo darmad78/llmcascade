@@ -151,10 +151,12 @@ class StatsStore:
         max_lat = float(latency_ms or 0)
         try:
             for grain, bucket in (("hour", hour), ("day", day)):
+                # Keep provider only under $set (never also $setOnInsert) — Mongo rejects
+                # duplicate paths on the same field and silently dropped all stats before.
                 await self._buckets.update_one(
                     {"grain": grain, "bucket": bucket, "model": model},
                     {
-                        "$inc": inc,
+                        "$inc": dict(inc),
                         "$max": {"latency_max_ms": max_lat},
                         "$set": {"provider": provider},
                     },
@@ -163,16 +165,16 @@ class StatsStore:
                 await self._buckets.update_one(
                     {"grain": grain, "bucket": bucket, "model": f"__note__:{note}"},
                     {
-                        "$inc": inc,
+                        "$inc": dict(inc),
                         "$max": {"latency_max_ms": max_lat},
-                        "$set": {"kind": "notes", "notes": note, "provider": ""},
+                        "$set": {"kind": "notes", "notes": note},
                     },
                     upsert=True,
                 )
             await self._totals.update_one(
                 {"scope": "model", "name": model},
                 {
-                    "$inc": inc,
+                    "$inc": dict(inc),
                     "$max": {"latency_max_ms": max_lat},
                     "$set": {"provider": provider},
                 },
@@ -181,7 +183,7 @@ class StatsStore:
             await self._totals.update_one(
                 {"scope": "provider", "name": provider},
                 {
-                    "$inc": inc,
+                    "$inc": dict(inc),
                     "$max": {"latency_max_ms": max_lat},
                 },
                 upsert=True,
@@ -189,13 +191,13 @@ class StatsStore:
             await self._totals.update_one(
                 {"scope": "notes", "name": note},
                 {
-                    "$inc": inc,
+                    "$inc": dict(inc),
                     "$max": {"latency_max_ms": max_lat},
                 },
                 upsert=True,
             )
         except Exception as exc:  # noqa: BLE001 — never fail request path on stats
-            log.info(
+            log.error(
                 f"stats persist failed: {exc}",
                 extra={"model_used": model, "provider": provider, "success": success},
             )
