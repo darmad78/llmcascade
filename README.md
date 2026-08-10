@@ -343,13 +343,12 @@ llmrouter/
 - Logging / `/v1/events`: metadata only (model, provider, latency, tokens, capability, safe error status). No prompts, completions, API keys, or raw provider response bodies.
 - Single-worker limitation remains: budgets and lockouts are process-local.
 
-## Legal & ToS Disclaimer
+## Disclaimer
 
-This software is an open-source utility designed to assist individual developers in managing their own API keys and rate limits.
-
-- **Compliance:** Users are solely responsible for ensuring that their usage of this software complies with the Terms of Service of each upstream LLM provider (Google Gemini, Groq, OpenRouter, Together, Cerebras, Mistral, SambaNova, DeepSeek, Hugging Face, Cloudflare, Cohere, NVIDIA NIM, DeepInfra).
-- **BYOK (Bring Your Own Key):** This application does not provide or resell API access. Users must supply their own authorized API credentials.
-- **No Warranty:** The maintainers are not responsible for account suspensions, rate-limit bans, API service disruptions, or unexpected billing incurred through the use of this software.
+- llmrouter is **not affiliated with, endorsed by, or sponsored by** any listed LLM provider (Google, Groq, OpenRouter, Together, Cerebras, Mistral, SambaNova, DeepSeek, Hugging Face, Cloudflare, Cohere, NVIDIA, DeepInfra, or others).
+- **You** are responsible for complying with each provider’s Terms of Service, rate limits, and acceptable-use policies when you configure and use API keys with this software.
+- **BYOK:** This project does not provide or resell API access. You must supply your own authorized credentials.
+- Software is provided **“as is”** with **no warranty**, as stated in the [MIT License](LICENSE). Use at your own risk — including account suspensions, rate-limit bans, service disruptions, or unexpected billing.
 
 ## License
 
