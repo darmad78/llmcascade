@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full production deploy for the PM2 llmrouter process.
+# Full production deploy for the PM2 llmcascade process.
 #
 # - git pull (unless DEPLOY_SKIP_PULL=1)
 # - pip install -e '.[api]' into .venv
@@ -13,14 +13,14 @@
 #
 # Optional:
 #   DEPLOY_SKIP_PULL=1     skip git pull
-#   PM2_APP_NAME=llmrouter
+#   PM2_APP_NAME=llmcascade
 #   UVICORN_HOST=0.0.0.0 UVICORN_PORT=12000
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-APP_NAME="${PM2_APP_NAME:-llmrouter}"
+APP_NAME="${PM2_APP_NAME:-llmcascade}"
 HOST="${UVICORN_HOST:-0.0.0.0}"
 PORT="${UVICORN_PORT:-12000}"
 PYTHON_BIN="${PYTHON_BIN:-python3.11}"
@@ -128,7 +128,7 @@ pm2 start "$UVICORN_BIN" \
   --interpreter none \
   --cwd "$ROOT" \
   -- \
-  llmrouter.api:app --host "$HOST" --port "$PORT"
+  llmcascade.api:app --host "$HOST" --port "$PORT"
 
 pm2 save
 pm2 show "$APP_NAME" | sed -n '1,40p'

@@ -1,10 +1,10 @@
 import pytest
 
-from llmrouter.adapters.base import LLMResponse
-from llmrouter.exceptions import AllModelsExhaustedError, ProviderError
-from llmrouter.rate_limiter import RateLimiter
-from llmrouter.registry import Limits, ModelConfig
-from llmrouter.selector import ModelSelector
+from llmcascade.adapters.base import LLMResponse
+from llmcascade.exceptions import AllModelsExhaustedError, ProviderError
+from llmcascade.rate_limiter import RateLimiter
+from llmcascade.registry import Limits, ModelConfig
+from llmcascade.selector import ModelSelector
 from datetime import datetime, timezone
 
 
@@ -54,7 +54,7 @@ async def test_retryable_retries_same_model(monkeypatch):
     async def no_sleep(_):
         return None
 
-    monkeypatch.setattr("llmrouter.selector.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("llmcascade.selector.asyncio.sleep", no_sleep)
 
     async def executor(model, prompt):
         calls["n"] += 1
@@ -103,7 +103,7 @@ async def test_budget_excludes_model():
 
 @pytest.mark.asyncio
 async def test_credit_cooldown_skips_model_on_next_pick():
-    from llmrouter.cascade import ModelCooldownTracker
+    from llmcascade.cascade import ModelCooldownTracker
 
     models = [_m("a"), _m("b")]
     cool = ModelCooldownTracker()
@@ -133,7 +133,7 @@ async def test_credit_cooldown_skips_model_on_next_pick():
 
 @pytest.mark.asyncio
 async def test_rate_cooldown_learns_retry_after():
-    from llmrouter.cascade import ModelCooldownTracker
+    from llmcascade.cascade import ModelCooldownTracker
 
     models = [_m("a"), _m("b")]
     cool = ModelCooldownTracker()

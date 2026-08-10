@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmcascade · status</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --line: #2a3544;
+      --text: #d6dde6;
+      --muted: #8b97a8;
+      --ok: #3dba7a;
+      --warn: #d4a017;
+      --bad: #e05a5a;
+      --unk: #6b7788;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+      --log-lines: 30;
+      --log-lh: 1.35;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #1a2830 0%, transparent 50%),
+        var(--bg);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .header-left {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.85rem 1.25rem;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    h1 span { color: var(--muted); font-weight: 500; }
+    .page-nav { display: flex; gap: 0.4rem; }
+    .nav-btn {
+      display: inline-block;
+      padding: 0.28rem 0.7rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+    .nav-btn:hover { color: var(--text); border-color: var(--muted); }
+    .nav-btn.is-active {
+      color: var(--text);
+      border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+    }
+    .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1rem 1.5rem 1.5rem;
+    }
+    h2 {
+      margin: 0 0 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .panel {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.85rem;
+    }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-bottom: 0.75rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .summary strong { color: var(--text); font-weight: 550; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 550;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    tr:last-child td { border-bottom: none; }
+    .name { font-family: var(--mono); font-size: 0.82rem; }
+    .provider { color: var(--muted); font-size: 0.8rem; }
+    .pill {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      border: 1px solid transparent;
+    }
+    .ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+    .auth_error, .bad, .cooling { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+    .down { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+    .unknown, .ready { color: var(--unk); border-color: color-mix(in srgb, var(--unk) 35%, transparent); background: color-mix(in srgb, var(--unk) 12%, transparent); }
+    .warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+    .budget { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+    .free-note { color: var(--muted); font-size: 0.72rem; margin-top: 0.2rem; max-width: 22rem; }
+    .free-left { font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+    .free-left .cap { color: var(--muted); }
+    .free-unverified { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+    tr.next-pick td {
+      background: color-mix(in srgb, var(--ok) 10%, transparent);
+      box-shadow: inset 3px 0 0 var(--ok);
+    }
+    .next-badge {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.08rem 0.4rem;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--ok);
+      border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+      background: color-mix(in srgb, var(--ok) 14%, transparent);
+      vertical-align: middle;
+    }
+    .logs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 900px) {
+      .logs { grid-template-columns: 1fr; }
+      table { font-size: 0.8rem; }
+    }
+    .log-window {
+      height: calc(var(--log-lines) * 1em * var(--log-lh));
+      overflow-y: auto;
+      background: #0b1015;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0.5rem 0.65rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: var(--log-lh);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-window .err { color: var(--bad); }
+    .log-window .ok-line { color: var(--ok); }
+    .log-window .ts { color: var(--muted); }
+    .empty { color: var(--muted); }
+    #gemini-panel[hidden] { display: none; }
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+      min-height: calc(100vh - 4.5rem);
+      align-items: stretch;
+    }
+    .shell > main {
+      min-width: 0;
+    }
+    .chat {
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      min-height: calc(100vh - 4.5rem);
+      max-height: calc(100vh - 4.5rem);
+    }
+    .chat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .chat-head h2 { margin: 0; }
+    .chat-clear {
+      appearance: none;
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.72rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .chat-clear:hover { color: var(--text); border-color: var(--muted); }
+    .chat-msgs {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.85rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .bubble {
+      max-width: 92%;
+      padding: 0.55rem 0.7rem;
+      border-radius: 6px;
+      font-size: 0.86rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .bubble.user {
+      align-self: flex-end;
+      background: color-mix(in srgb, #3a6ea5 28%, var(--panel));
+      border: 1px solid color-mix(in srgb, #3a6ea5 45%, var(--line));
+    }
+    .bubble.assistant {
+      align-self: flex-start;
+      background: #0b1015;
+      border: 1px solid var(--line);
+    }
+    .bubble.err {
+      align-self: flex-start;
+      color: var(--bad);
+      background: color-mix(in srgb, var(--bad) 10%, #0b1015);
+      border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+    }
+    .bubble .meta-line {
+      display: block;
+      margin-top: 0.35rem;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+    }
+    .chat-hint {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.4;
+      padding: 0.25rem 0;
+    }
+    .chat-form {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem 1rem;
+      border-top: 1px solid var(--line);
+    }
+    .chat-form textarea {
+      flex: 1;
+      resize: none;
+      min-height: 2.6rem;
+      max-height: 8rem;
+      padding: 0.55rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #0b1015;
+      color: var(--text);
+      font: inherit;
+      font-size: 0.88rem;
+      line-height: 1.35;
+    }
+    .chat-form textarea:focus {
+      outline: none;
+      border-color: color-mix(in srgb, #3a6ea5 55%, var(--line));
+    }
+    .chat-form button[type="submit"] {
+      appearance: none;
+      align-self: flex-end;
+      padding: 0.55rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid color-mix(in srgb, #3a6ea5 50%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 32%, var(--panel));
+      color: var(--text);
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 550;
+      cursor: pointer;
+    }
+    .chat-form button[type="submit"]:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    @media (max-width: 960px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+      .chat {
+        border-left: none;
+        border-top: 1px solid var(--line);
+        min-height: 420px;
+        max-height: 60vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>llmcascade <span>status</span></h1>
+      <nav class="page-nav" aria-label="Pages">
+        <a class="nav-btn is-active" href="/dashboard">Status</a>
+        <a class="nav-btn" href="/stats">Stats</a>
+        <a class="nav-btn" href="/admin/providers">Providers</a>
+        <a class="nav-btn" href="/help">Help</a>
+        <a class="nav-btn" href="/logout">Logout</a>
+      </nav>
+    </div>
+    <div class="meta" id="meta">loading…</div>
+  </header>
+  <div class="shell">
+  <main>
+    <section class="panel">
+      <h2>Configured models</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Key</th>
+              <th>Active</th>
+              <th>Free/Paid</th>
+              <th>Health</th>
+              <th>Free tier</th>
+              <th>Free left</th>
+              <th>Budget left</th>
+              <th>Reqs</th>
+              <th>Fails</th>
+            </tr>
+          </thead>
+          <tbody id="models"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel" id="gemini-panel" hidden>
+      <h2>Gemini cascade</h2>
+      <div class="summary" id="gemini-summary"></div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Cascade model</th>
+              <th>State</th>
+              <th>Cooldown</th>
+              <th>Ready at (UTC)</th>
+            </tr>
+          </thead>
+          <tbody id="gemini-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="logs">
+      <div class="panel">
+        <h2>Event log</h2>
+        <div class="log-window" id="events"><span class="empty">no events yet</span></div>
+      </div>
+      <div class="panel">
+        <h2>Error log</h2>
+        <div class="log-window" id="errors"><span class="empty">no errors</span></div>
+      </div>
+    </section>
+  </main>
+  <aside class="chat" aria-label="Project chatbot">
+    <div class="chat-head">
+      <h2>Ask about llmcascade</h2>
+      <button type="button" class="chat-clear" id="chat-clear" title="Clear this session">Clear</button>
+    </div>
+    <div class="chat-msgs" id="chat-msgs">
+      <div class="chat-hint">Ask how routing, budgets, Gemini cascade, or the dashboard work. History stays in this browser tab.</div>
+    </div>
+    <form class="chat-form" id="chat-form">
+      <textarea id="chat-input" rows="2" placeholder="Ask a question…" required></textarea>
+      <button type="submit" id="chat-send">Send</button>
+    </form>
+  </aside>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function fmtTime(ts) {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString(undefined, { hour12: false }) +
+        "." + String(d.getMilliseconds()).padStart(3, "0");
+    }
+
+    function fmtBudget(b) {
+      if (!b) return "—";
+      return `rps ${b.rps ?? "—"} · rpm ${b.rpm ?? "—"} · rpd ${b.rpd ?? "—"} · tpm ${b.tpm ?? "—"}`;
+    }
+
+    function fmtDuration(sec) {
+      if (sec == null) return "—";
+      sec = Math.max(0, Math.floor(sec));
+      if (sec < 60) return `${sec}s`;
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      if (m < 60) return `${m}m ${s}s`;
+      const h = Math.floor(m / 60);
+      const rm = m % 60;
+      if (h < 48) return `${h}h ${rm}m`;
+      const d = Math.floor(h / 24);
+      return `${d}d ${h % 24}h`;
+    }
+
+    function fmtFreeLeft(m) {
+      if (!m.free_tier_verified) {
+        return `<span class="free-unverified" title="${escapeHtml(m.free_tier_note || "")}">unverified</span>`;
+      }
+      const b = m.free_left || m.budget || {};
+      const lim = m.limits || {};
+      const parts = [
+        ["rpd", b.rpd, lim.rpd],
+        ["rpm", b.rpm, lim.rpm],
+      ].map(([k, left, cap]) => {
+        const l = left ?? "—";
+        const c = cap ?? "—";
+        return `<span>${k} <strong>${escapeHtml(l)}</strong><span class="cap">/${escapeHtml(c)}</span></span>`;
+      });
+      return `<div class="free-left">${parts.join(" · ")}</div>`;
+    }
+
+    function fmtFreeTier(m) {
+      const lim = m.limits || {};
+      if (!m.free_tier_verified) {
+        return `<span class="free-unverified">—</span>
+          <div class="free-note">${escapeHtml(m.free_tier_note || "free-tier limits not verified")}</div>`;
+      }
+      const caps = `rpd ${lim.rpd ?? "—"} · rpm ${lim.rpm ?? "—"}`;
+      return `<div class="budget">${escapeHtml(caps)}</div>
+        <div class="free-note">${escapeHtml(m.free_tier_note || "")}</div>`;
+    }
+
+    function renderModels(models, nextPick) {
+      const tb = $("models");
+      tb.innerHTML = models.map((m) => {
+        const h = m.health || {};
+        const state = h.state || "unknown";
+        const tip = [h.message, h.latency_ms != null ? `${h.latency_ms}ms` : null]
+          .filter(Boolean).join(" · ");
+        const isNext = m.is_next || (nextPick && nextPick.name === m.name);
+        const nextBadge = isNext ? `<span class="next-badge">next</span>` : "";
+        return `<tr class="${isNext ? "next-pick" : ""}">
+          <td>
+            <div class="name">${escapeHtml(m.name)}${nextBadge}</div>
+            <div class="provider">${escapeHtml(m.provider)} · p${m.priority}</div>
+          </td>
+          <td class="budget">${m.key_set ? escapeHtml(m.key_source || "set") : "none"}</td>
+          <td><span class="pill ${m.active ? "ok" : "unk"}">${m.active ? "yes" : "no"}</span></td>
+          <td>${escapeHtml(m.free_paid || "free")}</td>
+          <td><span class="pill ${state}" title="${escapeHtml(tip)}">${escapeHtml(state)}</span></td>
+          <td>${fmtFreeTier(m)}</td>
+          <td>${fmtFreeLeft(m)}</td>
+          <td class="budget">${escapeHtml(fmtBudget(m.budget))}</td>
+          <td>${m.requests_total}</td>
+          <td>${m.failures_total}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function renderGemini(g) {
+      const panel = $("gemini-panel");
+      if (!g || !g.models || !g.models.length) {
+        panel.hidden = true;
+        return;
+      }
+      panel.hidden = false;
+      const readyCls = g.family_ready ? "ok" : "warn";
+      const readyLabel = g.family_ready ? "ready" : "cooling";
+      const next = g.family_ready
+        ? "now"
+        : (g.next_ready_in_s != null ? fmtDuration(g.next_ready_in_s) : "—");
+      $("gemini-summary").innerHTML = `
+        <span>family <strong class="pill ${readyCls}">${readyLabel}</strong></span>
+        <span>budget <strong>${escapeHtml(fmtBudget(g.budget))}</strong></span>
+        <span>reqs <strong>${g.requests_total ?? 0}</strong></span>
+        <span>fails <strong>${g.failures_total ?? 0}</strong></span>
+        <span>next ready <strong>${escapeHtml(next)}</strong></span>
+      `;
+      const cooling = g.cooldown_remaining_s || {};
+      const at = g.available_at || {};
+      const available = new Set(g.available || []);
+      $("gemini-rows").innerHTML = (g.models || []).map((id) => {
+        const isReady = available.has(id);
+        const rem = cooling[id];
+        const state = isReady ? "ready" : "cooling";
+        const cool = isReady ? "—" : fmtDuration(rem);
+        const readyAt = isReady ? "—" : (at[id] || "—");
+        return `<tr>
+          <td class="name">${escapeHtml(id)}</td>
+          <td><span class="pill ${isReady ? "ok" : "cooling"}">${state}</span></td>
+          <td class="budget">${escapeHtml(cool)}</td>
+          <td class="budget">${escapeHtml(readyAt)}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    function renderLog(el, items, emptyMsg) {
+      if (!items.length) {
+        el.innerHTML = `<span class="empty">${emptyMsg}</span>`;
+        return;
+      }
+      const stickTop = el.scrollTop <= 8;
+      el.innerHTML = items.map((e) => {
+        const cls = e.level === "error" || e.detail?.success === false ? "err"
+          : e.detail?.success === true ? "ok-line" : "";
+        const model = e.model ? ` [${e.model}]` : "";
+        const notes = e.detail?.notes ? ` · ${e.detail.notes}` : "";
+        const extra = e.detail?.error ? ` — ${e.detail.error}` : "";
+        return `<div class="${cls}"><span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(notes)}${escapeHtml(extra)}</div>`;
+      }).join("");
+      if (stickTop) el.scrollTop = 0;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/v1/dashboard");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderModels(data.models || [], data.next_pick);
+        renderGemini(data.gemini_cascade);
+        renderLog($("events"), data.events || [], "no events yet");
+        renderLog($("errors"), data.errors || [], "no errors");
+        const q = data.queue || {};
+        const next = data.next_pick
+          ? `next ${data.next_pick.name}`
+          : "next —";
+        $("meta").textContent =
+          `${(data.models || []).length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · workers ${q.workers ?? "—"} · ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        $("meta").textContent = `refresh failed: ${err.message}`;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+
+    const CHAT_KEY = "llmcascade.dashboard.chat";
+    const PROJECT_CONTEXT = [
+      "You are a helper for the llmcascade project — a free-tier LLM dispatcher.",
+      "It picks an eligible free model from live rate-limit budgets (rpd/rpm/rps/tpm),",
+      "calls that provider's HTTP API, and falls back on failure.",
+      "Library: RouterClient. Optional FastAPI layer with POST /v1/complete.",
+      "Dashboard at /dashboard shows model health, budgets, Gemini cascade, event/error logs.",
+      "Gemini models share a cascade family with cooldowns; other providers use per-model budgets.",
+      "Answer questions about this project only. Be concise and accurate.",
+    ].join(" ");
+
+    let chatHistory = [];
+
+    function loadChat() {
+      try {
+        const raw = sessionStorage.getItem(CHAT_KEY);
+        chatHistory = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(chatHistory)) chatHistory = [];
+      } catch {
+        chatHistory = [];
+      }
+    }
+
+    function saveChat() {
+      sessionStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory));
+    }
+
+    function renderChat() {
+      const el = $("chat-msgs");
+      if (!chatHistory.length) {
+        el.innerHTML = `<div class="chat-hint">Ask how routing, budgets, Gemini cascade, or the dashboard work. History stays in this browser tab.</div>`;
+        return;
+      }
+      el.innerHTML = chatHistory.map((m) => {
+        const cls = m.role === "user" ? "user" : (m.error ? "err assistant" : "assistant");
+        const meta = m.model
+          ? `<span class="meta-line">${escapeHtml(m.model)}${m.latency_ms != null ? ` · ${m.latency_ms}ms` : ""}</span>`
+          : "";
+        return `<div class="bubble ${cls}">${escapeHtml(m.content)}${meta}</div>`;
+      }).join("");
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function buildPrompt(history) {
+      const turns = history.map((m) =>
+        `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`
+      ).join("\n");
+      return `${PROJECT_CONTEXT}\n\nConversation so far:\n${turns}\nAssistant:`;
+    }
+
+    async function sendChat(text) {
+      const input = $("chat-input");
+      const btn = $("chat-send");
+      chatHistory.push({ role: "user", content: text });
+      saveChat();
+      renderChat();
+      input.value = "";
+      input.disabled = true;
+      btn.disabled = true;
+
+      try {
+        const res = await fetch("/v1/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: buildPrompt(chatHistory),
+            capability: "chat",
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const detail = data.detail || `HTTP ${res.status}`;
+          chatHistory.push({ role: "assistant", content: String(detail), error: true });
+        } else {
+          chatHistory.push({
+            role: "assistant",
+            content: data.text || "(empty response)",
+            model: data.model,
+            latency_ms: data.latency_ms,
+          });
+        }
+      } catch (err) {
+        chatHistory.push({ role: "assistant", content: err.message || String(err), error: true });
+      }
+
+      saveChat();
+      renderChat();
+      input.disabled = false;
+      btn.disabled = false;
+      input.focus();
+    }
+
+    $("chat-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = $("chat-input").value.trim();
+      if (!text || $("chat-send").disabled) return;
+      sendChat(text);
+    });
+
+    $("chat-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        $("chat-form").requestSubmit();
+      }
+    });
+
+    $("chat-clear").addEventListener("click", () => {
+      chatHistory = [];
+      saveChat();
+      renderChat();
+      $("chat-input").focus();
+    });
+
+    loadChat();
+    renderChat();
+  </script>
+</body>
+</html>

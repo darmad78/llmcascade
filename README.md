@@ -1,4 +1,4 @@
-# llmrouter
+# llmcascade
 
 Standalone **free-tier LLM dispatcher**. At request time it picks an eligible free model from a live rate-limit budget, calls that provider’s native HTTP API, and falls back to the next model on failure.
 
@@ -36,13 +36,13 @@ Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP lay
 | NVIDIA NIM | `NVIDIA_NIM_API_KEY` | OpenAI-compatible |
 | DeepInfra | `DEEPINFRA_API_KEY` | OpenAI-compatible |
 
-Model IDs, endpoints, and free-tier limit estimates live in [`llmrouter/models.yaml`](llmrouter/models.yaml).
+Model IDs, endpoints, and free-tier limit estimates live in [`llmcascade/models.yaml`](llmcascade/models.yaml).
 
 ## Install
 
 ```bash
-git clone git@github.com:darmad78/llmrouter.git
-cd llmrouter
+git clone git@github.com:darmad78/llmcascade.git
+cd llmcascade
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e .
 pip install -e ".[api]"   # optional FastAPI + uvicorn + admin auth crypto
@@ -52,9 +52,9 @@ pip install -e ".[dev]"   # pytest
 Or from another project:
 
 ```bash
-pip install "git+https://github.com/darmad78/llmrouter.git"
+pip install "git+https://github.com/darmad78/llmcascade.git"
 # with HTTP layer:
-pip install "llmrouter[api] @ git+https://github.com/darmad78/llmrouter.git"
+pip install "llmcascade[api] @ git+https://github.com/darmad78/llmcascade.git"
 ```
 
 ## Configuration
@@ -75,7 +75,7 @@ Token estimates for TPM gating use `len(text) // 4` (no tiktoken). After a succe
 
 ### A. HTTP client (self-hosted instance)
 
-No llmrouter install required — call `POST /v1/complete` on your instance.
+No llmcascade install required — call `POST /v1/complete` on your instance.
 
 ```python
 import httpx
@@ -88,7 +88,7 @@ def complete(prompt: str, capability: str = "chat", notes: str | None = None, **
         body["notes"] = notes  # e.g. "app" / "system" — shown in event log + stats
     headers = {}
     # If REQUIRE_AUTH=true on the server:
-    # headers["Authorization"] = "Bearer YOUR_LLMROUTER_API_KEY"
+    # headers["Authorization"] = "Bearer YOUR_LLMCASCADE_API_KEY"
     r = httpx.post(f"{BASE}/v1/complete", json=body, headers=headers, timeout=120.0)
     r.raise_for_status()
     return r.json()  # text, model, tokens_used, latency_ms, raw
@@ -126,7 +126,7 @@ Runs the dispatcher inside your app (needs provider keys in the environment / `.
 
 ```python
 import asyncio
-from llmrouter import RouterClient
+from llmcascade import RouterClient
 
 async def main():
     client = RouterClient()  # loads packaged models.yaml
@@ -164,7 +164,7 @@ Budgets, metrics, health cache, event logs, API-key RPM, and login lockout are *
 ### 1. Env + install
 
 ```bash
-cd /path/to/llmrouter
+cd /path/to/llmcascade
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[api]"
 cp .env.example .env   # fill provider keys and optional security settings
@@ -174,7 +174,7 @@ set -a && source .env && set +a
 ### 2. Foreground (dev)
 
 ```bash
-uvicorn llmrouter.api:app --host 0.0.0.0 --port 12000
+uvicorn llmcascade.api:app --host 0.0.0.0 --port 12000
 ```
 
 Open **http://localhost:12000/login** (default first-run: `admin` / `admin` — you must change the password before the dashboard unlocks).
@@ -184,11 +184,11 @@ Open **http://localhost:12000/login** (default first-run: `admin` / `admin` — 
 Single instance only (`instances: 1`, no cluster). Load `.env` before start so keys are inherited.
 
 ```bash
-cd /path/to/llmrouter
+cd /path/to/llmcascade
 set -a && source .env && set +a
-pm2 delete llmrouter 2>/dev/null || true
-pm2 start .venv/bin/uvicorn --name llmrouter --interpreter none --cwd /path/to/llmrouter -- \
-  llmrouter.api:app --host 127.0.0.1 --port 12000
+pm2 delete llmcascade 2>/dev/null || true
+pm2 start .venv/bin/uvicorn --name llmcascade --interpreter none --cwd /path/to/llmcascade -- \
+  llmcascade.api:app --host 127.0.0.1 --port 12000
 pm2 save
 ```
 
@@ -199,7 +199,7 @@ Prefer binding uvicorn to `127.0.0.1` and terminating TLS at a reverse proxy whe
 ```nginx
 server {
     listen 443 ssl;
-    server_name llmrouter.example.com;
+    server_name llmcascade.example.com;
     # ssl_certificate /path/to/fullchain.pem;
     # ssl_certificate_key /path/to/privkey.pem;
 
@@ -214,7 +214,7 @@ server {
 }
 ```
 
-Set `LLMROUTER_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: https` is set) so admin cookies get the `Secure` flag.
+Set `LLMCASCADE_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: https` is set) so admin cookies get the `Secure` flag.
 
 ### API / UI routes
 
@@ -252,18 +252,18 @@ Disabled by default (`REQUIRE_AUTH=false`). To require a key:
 
 ```bash
 REQUIRE_AUTH=true
-LLMROUTER_API_KEYS=change-me,another-key
+LLMCASCADE_API_KEYS=change-me,another-key
 # optional per-key RPM (process-local):
-LLMROUTER_API_RPM=60
+LLMCASCADE_API_RPM=60
 ```
 
 Clients send `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 
 ### Admin auth + provider keys
 
-- First boot creates local admin `admin` / `admin` under `LLMROUTER_DATA_DIR` (default `.llmrouter/`) and forces a password change before dashboard access.
-- Admin session is a JWT in an HttpOnly `SameSite=Lax` cookie (`Secure` when HTTPS / `LLMROUTER_COOKIE_SECURE=true`). Password changes bump `pwd_version` and invalidate older JWTs.
-- Admin POSTs use double-submit CSRF (`llmrouter_csrf` cookie + form/header token). Login has basic lockout after 5 failures (process-local).
+- First boot creates local admin `admin` / `admin` under `LLMCASCADE_DATA_DIR` (default `.llmcascade/`) and forces a password change before dashboard access.
+- Admin session is a JWT in an HttpOnly `SameSite=Lax` cookie (`Secure` when HTTPS / `LLMCASCADE_COOKIE_SECURE=true`). Password changes bump `pwd_version` and invalidate older JWTs.
+- Admin POSTs use double-submit CSRF (`llmcascade_csrf` cookie + form/header token). Login has basic lockout after 5 failures (process-local).
 - Provider keys saved in the UI are encrypted at rest with Fernet using an **HKDF-derived** key from `SECRET_KEY` (never the raw secret as the Fernet key).
 
 ## Failure / fallback behavior
@@ -277,7 +277,7 @@ Streaming is **not** supported in v1 (`LLMResponse.text` is a complete string).
 
 ## Gemini cascade
 
-Gemini is a **provider family**, not a single model row. `models.yaml` has one logical entry (`name: gemini`) with an ordered `cascade:` list. When the selector picks Gemini, llmrouter walks that list internally before raising to the outer free-provider fallback.
+Gemini is a **provider family**, not a single model row. `models.yaml` has one logical entry (`name: gemini`) with an ordered `cascade:` list. When the selector picks Gemini, llmcascade walks that list internally before raising to the outer free-provider fallback.
 
 **Order (default):** `gemini-3.6-flash` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash` → `gemini-2.0-flash-lite`. Set `GEMINI_MODEL` to prepend a preferred head. `gemini-3.*` IDs may be speculative/preview — a 404 permanently cools that ID only.
 
@@ -306,12 +306,12 @@ pytest -q
 ## Layout
 
 ```
-llmrouter/
+llmcascade/
   pyproject.toml
   LICENSE
   .env.example
   README.md
-  llmrouter/
+  llmcascade/
     registry.py      # YAML + env / encrypted-store auth resolution
     rate_limiter.py  # BudgetStore + in-memory + API-key limiter
     tokens.py
@@ -336,17 +336,17 @@ llmrouter/
 **Self-hosted only.** This is not a multi-tenant hosted service.
 
 - Uvicorn examples often bind `0.0.0.0`. That exposes the process on all interfaces. Prefer `127.0.0.1` behind a reverse proxy, or firewall the port.
-- **`POST /v1/complete` has no auth unless you set `REQUIRE_AUTH=true` and `LLMROUTER_API_KEYS`.** Do not expose it to the public internet without that (plus TLS).
+- **`POST /v1/complete` has no auth unless you set `REQUIRE_AUTH=true` and `LLMCASCADE_API_KEYS`.** Do not expose it to the public internet without that (plus TLS).
 - The admin UI (`/login`, `/dashboard`, `/stats`, `/admin/*`, and related `/v1/*` data routes) uses a **separate** JWT cookie auth layer. Enabling API-key auth does not protect the dashboard by itself, and logging into the dashboard does not authorize `/v1/complete`.
-- Do **not** put an unauthenticated llmrouter on the public internet. Minimum for any internet exposure: `REQUIRE_AUTH=true`, strong `LLMROUTER_API_KEYS`, changed admin password, reverse proxy + TLS, and `LLMROUTER_COOKIE_SECURE=true`.
+- Do **not** put an unauthenticated llmcascade on the public internet. Minimum for any internet exposure: `REQUIRE_AUTH=true`, strong `LLMCASCADE_API_KEYS`, changed admin password, reverse proxy + TLS, and `LLMCASCADE_COOKIE_SECURE=true`.
 - **Free/Paid** on `/admin/providers` is a **display-only** label. Paid providers with a configured key are still selected automatically by routing — the label does not block spend or exclude models.
-- Provider keys: `.env` (gitignored) and/or encrypted UI store under `LLMROUTER_DATA_DIR`. Never commit secrets.
+- Provider keys: `.env` (gitignored) and/or encrypted UI store under `LLMCASCADE_DATA_DIR`. Never commit secrets.
 - Logging / `/v1/events`: metadata only (model, provider, latency, tokens, capability, safe error status). No prompts, completions, API keys, or raw provider response bodies.
 - Single-worker limitation remains: budgets and lockouts are process-local.
 
 ## Disclaimer
 
-- llmrouter is **not affiliated with, endorsed by, or sponsored by** any listed LLM provider (Google, Groq, OpenRouter, Together, Cerebras, Mistral, SambaNova, DeepSeek, Hugging Face, Cloudflare, Cohere, NVIDIA, DeepInfra, or others).
+- llmcascade is **not affiliated with, endorsed by, or sponsored by** any listed LLM provider (Google, Groq, OpenRouter, Together, Cerebras, Mistral, SambaNova, DeepSeek, Hugging Face, Cloudflare, Cohere, NVIDIA, DeepInfra, or others).
 - **You** are responsible for complying with each provider’s Terms of Service, rate limits, and acceptable-use policies when you configure and use API keys with this software.
 - **BYOK:** This project does not provide or resell API access. You must supply your own authorized credentials.
 - Software is provided **“as is”** with **no warranty**, as stated in [LICENSE](LICENSE). Use at your own risk — including account suspensions, rate-limit bans, service disruptions, or unexpected billing.
@@ -355,7 +355,7 @@ llmrouter/
 
 **BUSL-1.1-derived / source-available** (v1.1) — see [LICENSE](LICENSE) (draft; not legal advice) and [LICENSING-FAQ.md](LICENSING-FAQ.md).
 
-- **Free** for **Non-Commercial Use**: personal, educational, academic, and internal use where nothing built on llmrouter is sold or monetized.
+- **Free** for **Non-Commercial Use**: personal, educational, academic, and internal use where nothing built on llmcascade is sold or monetized.
 - **Commercial Use** (including hosted/SaaS or any revenue-connected product/service) requires a separate written **Commercial License** — contact **support@conceptgame.co.uk** before that use begins.
 - On **10 August 2030** (Change Date), the commercial restriction ends and the Licensed Work becomes available under **Apache License, Version 2.0**.
 - Governed by the laws of **England and Wales**.

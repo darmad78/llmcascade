@@ -1,4 +1,4 @@
-from llmrouter.tokens import estimate_tokens
+from llmcascade.tokens import estimate_tokens
 
 
 def test_estimate_tokens_floor():

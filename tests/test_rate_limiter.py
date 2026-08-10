@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from llmrouter.rate_limiter import RateLimiter
-from llmrouter.registry import Limits, ModelConfig
+from llmcascade.rate_limiter import RateLimiter
+from llmcascade.registry import Limits, ModelConfig
 
 
 def _model(**overrides) -> ModelConfig:
@@ -49,10 +49,10 @@ async def test_tpm_blocks_on_estimate():
 async def test_window_reset(monkeypatch):
     lim = RateLimiter([_model(limits=Limits(rpd=100, rpm=10, rps=1, tpm=1000, max_context=4096))])
     t0 = 1000.0
-    monkeypatch.setattr("llmrouter.rate_limiter.time.monotonic", lambda: t0)
+    monkeypatch.setattr("llmcascade.rate_limiter.time.monotonic", lambda: t0)
     await lim.record_usage("m1", 1)
     assert not await lim.can_proceed("m1", 1)
-    monkeypatch.setattr("llmrouter.rate_limiter.time.monotonic", lambda: t0 + 1.1)
+    monkeypatch.setattr("llmcascade.rate_limiter.time.monotonic", lambda: t0 + 1.1)
     assert await lim.can_proceed("m1", 1)
 
 

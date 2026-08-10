@@ -8,15 +8,15 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from llmrouter.provider_store import (
+from llmcascade.provider_store import (
     decrypt_key,
     encrypt_key,
     get_decrypted_key,
     save_provider,
 )
-from llmrouter.queue_worker import RouterClient
-from llmrouter.registry import load_registry, resolve_auth_env
-from llmrouter.secrets import fernet_key_material
+from llmcascade.queue_worker import RouterClient
+from llmcascade.registry import load_registry, resolve_auth_env
+from llmcascade.secrets import fernet_key_material
 
 
 _LIMITS = {"rpd": 10, "rpm": 10, "rps": 1, "tpm": 1000, "max_context": 1024}
@@ -24,7 +24,7 @@ _LIMITS = {"rpd": 10, "rpm": 10, "rps": 1, "tpm": 1000, "max_context": 1024}
 
 @pytest.fixture()
 def secret_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("LLMROUTER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LLMCASCADE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SECRET_KEY", "provider-store-test-secret-key!!")
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     yield
@@ -80,8 +80,8 @@ def test_admin_providers_save_csrf(secret_env, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GROQ_API_KEY", "bootstrap")
     monkeypatch.delenv("MONGODB_URI", raising=False)
     from fastapi.testclient import TestClient
-    import llmrouter.admin_auth as admin_auth
-    import llmrouter.api as api_mod
+    import llmcascade.admin_auth as admin_auth
+    import llmcascade.api as api_mod
 
     admin_auth.login_lockout._failures.clear()
     admin_auth.login_lockout._locked_until.clear()
@@ -93,7 +93,7 @@ def test_admin_providers_save_csrf(secret_env, monkeypatch: pytest.MonkeyPatch):
             follow_redirects=False,
         )
         assert login.status_code == 303, login.text
-        csrf = c.cookies.get("llmrouter_csrf")
+        csrf = c.cookies.get("llmcascade_csrf")
         assert csrf, dict(c.cookies)
         c.post(
             "/admin/change-password",
@@ -104,7 +104,7 @@ def test_admin_providers_save_csrf(secret_env, monkeypatch: pytest.MonkeyPatch):
             },
             follow_redirects=False,
         )
-        csrf = c.cookies.get("llmrouter_csrf")
+        csrf = c.cookies.get("llmcascade_csrf")
         bad = c.post(
             "/admin/providers",
             json={"provider": "groq", "api_key": "ui-key", "free_paid": "paid"},

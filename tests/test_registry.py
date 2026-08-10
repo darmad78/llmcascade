@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from llmrouter.exceptions import RegistryError
-from llmrouter.registry import load_registry
+from llmcascade.exceptions import RegistryError
+from llmcascade.registry import load_registry
 
 
 def _write_models(tmp: Path, models: list[dict]) -> Path:

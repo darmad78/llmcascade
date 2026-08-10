@@ -4,21 +4,21 @@ import httpx
 import pytest
 import respx
 
-from llmrouter.adapters.cerebras_adapter import CerebrasAdapter
-from llmrouter.adapters.cloudflare_adapter import CloudflareAdapter
-from llmrouter.adapters.cohere_adapter import CohereAdapter
-from llmrouter.adapters.deepinfra_adapter import DeepInfraAdapter
-from llmrouter.adapters.deepseek_adapter import DeepSeekAdapter
-from llmrouter.adapters.gemini_adapter import GeminiAdapter
-from llmrouter.adapters.groq_adapter import GroqAdapter
-from llmrouter.adapters.huggingface_adapter import HuggingFaceAdapter
-from llmrouter.adapters.mistral_adapter import MistralAdapter
-from llmrouter.adapters.nvidia_adapter import NvidiaAdapter
-from llmrouter.adapters.openrouter_adapter import OpenRouterAdapter
-from llmrouter.adapters.sambanova_adapter import SambaNovaAdapter
-from llmrouter.adapters.together_adapter import TogetherAdapter
-from llmrouter.exceptions import ProviderError
-from llmrouter.registry import Limits, ModelConfig, resolve_auth_env
+from llmcascade.adapters.cerebras_adapter import CerebrasAdapter
+from llmcascade.adapters.cloudflare_adapter import CloudflareAdapter
+from llmcascade.adapters.cohere_adapter import CohereAdapter
+from llmcascade.adapters.deepinfra_adapter import DeepInfraAdapter
+from llmcascade.adapters.deepseek_adapter import DeepSeekAdapter
+from llmcascade.adapters.gemini_adapter import GeminiAdapter
+from llmcascade.adapters.groq_adapter import GroqAdapter
+from llmcascade.adapters.huggingface_adapter import HuggingFaceAdapter
+from llmcascade.adapters.mistral_adapter import MistralAdapter
+from llmcascade.adapters.nvidia_adapter import NvidiaAdapter
+from llmcascade.adapters.openrouter_adapter import OpenRouterAdapter
+from llmcascade.adapters.sambanova_adapter import SambaNovaAdapter
+from llmcascade.adapters.together_adapter import TogetherAdapter
+from llmcascade.exceptions import ProviderError
+from llmcascade.registry import Limits, ModelConfig, resolve_auth_env
 
 OA_BODY = {
     "choices": [{"message": {"content": "hello"}}],

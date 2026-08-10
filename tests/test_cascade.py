@@ -4,18 +4,18 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from llmrouter.adapters.base import LLMResponse
-from llmrouter.cascade import (
+from llmcascade.adapters.base import LLMResponse
+from llmcascade.cascade import (
     GeminiCascadeManager,
     classify_failure,
     cooldown_until,
     needs_thinking_budget_zero,
     resolve_cascade_order,
 )
-from llmrouter.exceptions import ProviderError
-from llmrouter.rate_limiter import RateLimiter
-from llmrouter.registry import Limits, ModelConfig
-from llmrouter.selector import ModelSelector
+from llmcascade.exceptions import ProviderError
+from llmcascade.rate_limiter import RateLimiter
+from llmcascade.registry import Limits, ModelConfig
+from llmcascade.selector import ModelSelector
 
 
 def test_classify_daily():
@@ -88,10 +88,10 @@ def test_resolve_cascade_prefers_env(monkeypatch):
 
 
 def test_effective_cascade_hides_and_reorders(tmp_path, monkeypatch):
-    monkeypatch.setenv("LLMROUTER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("LLMCASCADE_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
-    from llmrouter.cascade import effective_cascade_members
-    from llmrouter.model_store import set_override
+    from llmcascade.cascade import effective_cascade_members
+    from llmcascade.model_store import set_override
 
     base = ["a", "b", "c"]
     assert effective_cascade_members(base) == base
@@ -182,7 +182,7 @@ async def test_wait_for_gemini_retries(monkeypatch):
         async with mgr._lock:
             mgr._cooldowns.pop("a", None)
 
-    monkeypatch.setattr("llmrouter.cascade.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("llmcascade.cascade.asyncio.sleep", fake_sleep)
 
     async def send(model_id: str, prompt: str) -> LLMResponse:
         return LLMResponse(text="ok", model=model_id, tokens_used=1)

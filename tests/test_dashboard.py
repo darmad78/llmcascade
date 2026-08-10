@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from llmrouter.event_log import EventLog
-from llmrouter.health import _classify
+from llmcascade.event_log import EventLog
+from llmcascade.health import _classify
 
 
 def test_event_log_splits_errors():

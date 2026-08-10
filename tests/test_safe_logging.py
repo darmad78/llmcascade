@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from llmrouter.adapters.base import LLMResponse
-from llmrouter.event_log import EventLog
-from llmrouter.exceptions import ProviderError, safe_error_message
-from llmrouter.rate_limiter import RateLimiter
-from llmrouter.registry import Limits, ModelConfig
-from llmrouter.selector import ModelSelector
+from llmcascade.adapters.base import LLMResponse
+from llmcascade.event_log import EventLog
+from llmcascade.exceptions import ProviderError, safe_error_message
+from llmcascade.rate_limiter import RateLimiter
+from llmcascade.registry import Limits, ModelConfig
+from llmcascade.selector import ModelSelector
 
 
 @pytest.mark.asyncio
 async def test_events_omit_provider_body(monkeypatch: pytest.MonkeyPatch):
-    from llmrouter import selector as selector_mod
+    from llmcascade import selector as selector_mod
 
     ring = EventLog(maxlen=50)
     monkeypatch.setattr(selector_mod, "events", ring)

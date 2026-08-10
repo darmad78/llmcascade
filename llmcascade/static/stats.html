@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmcascade · stats</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" defer></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --line: #2a3544;
+      --text: #d6dde6;
+      --muted: #8b97a8;
+      --ok: #3dba7a;
+      --warn: #d4a017;
+      --bad: #e05a5a;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #1a2830 0%, transparent 50%),
+        var(--bg);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .header-left {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.85rem 1.25rem;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    h1 span { color: var(--muted); font-weight: 500; }
+    .page-nav { display: flex; gap: 0.4rem; }
+    .nav-btn {
+      display: inline-block;
+      padding: 0.28rem 0.7rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 550;
+      letter-spacing: 0.02em;
+    }
+    .nav-btn:hover { color: var(--text); border-color: var(--muted); }
+    .nav-btn.is-active {
+      color: var(--text);
+      border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+    }
+    .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.6rem 1rem;
+      padding: 0.85rem 1.5rem 0;
+    }
+    .toolbar label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .range-btns { display: flex; gap: 0.35rem; }
+    .range-btns button {
+      appearance: none;
+      padding: 0.28rem 0.65rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      cursor: pointer;
+    }
+    .range-btns button:hover { color: var(--text); }
+    .range-btns button.active {
+      color: var(--text);
+      border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+    }
+    main {
+      display: grid;
+      gap: 1rem;
+      padding: 1rem 1.5rem 1.5rem;
+    }
+    h2 {
+      margin: 0 0 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .panel {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.85rem;
+    }
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+    @media (max-width: 900px) {
+      .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .kpi {
+      padding: 0.75rem 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0b1015;
+    }
+    .kpi .label {
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.35rem;
+    }
+    .kpi .value {
+      font-family: var(--mono);
+      font-size: 1.25rem;
+      font-weight: 550;
+    }
+    .charts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 1000px) {
+      .charts { grid-template-columns: 1fr; }
+    }
+    .chart-wrap {
+      position: relative;
+      height: 280px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 550;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    tr:last-child td { border-bottom: none; }
+    .name { font-family: var(--mono); font-size: 0.82rem; }
+    .provider { color: var(--muted); font-size: 0.8rem; }
+    .num { font-family: var(--mono); font-size: 0.82rem; }
+    .banner {
+      padding: 0.75rem 0.9rem;
+      border-radius: 6px;
+      border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+      background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+      color: var(--text);
+      font-size: 0.88rem;
+    }
+    .banner code {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--warn);
+    }
+    #mongo-banner[hidden] { display: none; }
+    .svc-filters {
+      display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+      margin: 0 0 0.75rem; padding: 0.65rem 0.75rem;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    }
+    .svc-filters .hint { color: var(--muted); font-size: 0.75rem; margin-right: 0.35rem; }
+    .svc-chip {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      padding: 0.22rem 0.55rem; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--line); color: var(--muted); font-size: 0.78rem;
+      font-family: var(--mono); user-select: none;
+      background: transparent;
+    }
+    .svc-chip input { accent-color: #3a6ea5; margin: 0; }
+    .svc-chip.on {
+      color: var(--text);
+      border-color: color-mix(in srgb, #3a6ea5 45%, var(--line));
+      background: color-mix(in srgb, #3a6ea5 18%, var(--panel));
+    }
+    .svc-filters button.ghost {
+      padding: 0.22rem 0.55rem; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--line); background: transparent; color: var(--muted);
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>llmcascade <span>stats</span></h1>
+      <nav class="page-nav" aria-label="Pages">
+        <a class="nav-btn" href="/dashboard">Status</a>
+        <a class="nav-btn is-active" href="/stats">Stats</a>
+        <a class="nav-btn" href="/admin/providers">Providers</a>
+        <a class="nav-btn" href="/help">Help</a>
+        <a class="nav-btn" href="/logout">Logout</a>
+      </nav>
+    </div>
+    <div class="meta" id="meta">loading…</div>
+  </header>
+  <div class="toolbar">
+    <label for="range">Range</label>
+    <div class="range-btns" id="range" role="group" aria-label="Time range">
+      <button type="button" data-range="24h">24h</button>
+      <button type="button" data-range="7d" class="active">7d</button>
+      <button type="button" data-range="30d">30d</button>
+    </div>
+  </div>
+  <main>
+    <div class="banner" id="mongo-banner" hidden></div>
+    <section class="kpi-row" id="kpis">
+      <div class="kpi"><div class="label">Requests</div><div class="value" id="kpi-req">—</div></div>
+      <div class="kpi"><div class="label">Failures</div><div class="value" id="kpi-fail">—</div></div>
+      <div class="kpi"><div class="label">Success rate</div><div class="value" id="kpi-ok">—</div></div>
+      <div class="kpi"><div class="label">Avg latency</div><div class="value" id="kpi-lat">—</div></div>
+    </section>
+    <section class="svc-filters" id="service-filters" hidden>
+      <span class="hint">Services (toggle):</span>
+      <span id="service-toggles"></span>
+      <button type="button" class="ghost" id="svc-all">All</button>
+      <button type="button" class="ghost" id="svc-none">None</button>
+    </section>
+    <section class="charts">
+      <div class="panel">
+        <h2>Hourly requests by model</h2>
+        <div class="chart-wrap"><canvas id="chart-hourly-model"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Daily requests by provider</h2>
+        <div class="chart-wrap"><canvas id="chart-daily-provider"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Model usage share</h2>
+        <div class="chart-wrap"><canvas id="chart-usage"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Model performance (avg latency)</h2>
+        <div class="chart-wrap"><canvas id="chart-perf"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Hourly requests by service</h2>
+        <div class="chart-wrap"><canvas id="chart-hourly-notes"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Daily requests by service</h2>
+        <div class="chart-wrap"><canvas id="chart-daily-notes"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Service usage share</h2>
+        <div class="chart-wrap"><canvas id="chart-notes-usage"></canvas></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>All-time by model</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Provider</th>
+              <th>Requests</th>
+              <th>Failures</th>
+              <th>Success</th>
+              <th>Avg ms</th>
+              <th>Max ms</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="model-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>All-time by provider API</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Requests</th>
+              <th>Failures</th>
+              <th>Success</th>
+              <th>Avg ms</th>
+              <th>Max ms</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="provider-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>All-time by service</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>Requests</th>
+              <th>Failures</th>
+              <th>Success</th>
+              <th>Avg ms</th>
+              <th>Max ms</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="notes-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const PALETTE = [
+      "#3a6ea5", "#3dba7a", "#d4a017", "#e05a5a", "#8b7ec8",
+      "#2aabb8", "#c47a5a", "#6b9bd1", "#9acd7a", "#c9a227",
+    ];
+    let range = "7d";
+    const charts = {};
+    const serviceVisible = {};
+    let lastStats = null;
+
+    function pct(v) {
+      return `${(v * 100).toFixed(1)}%`;
+    }
+
+    function fmtNum(n) {
+      return Number(n || 0).toLocaleString();
+    }
+
+    function destroyChart(key) {
+      if (charts[key]) {
+        charts[key].destroy();
+        delete charts[key];
+      }
+    }
+
+    function chartDefaults() {
+      Chart.defaults.color = "#8b97a8";
+      Chart.defaults.borderColor = "#2a3544";
+      Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    }
+
+    function stackedLine(ctx, labels, datasets, { serviceLegend = false } = {}) {
+      return new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { boxWidth: 10, font: { size: 11 } },
+              onClick: serviceLegend
+                ? (_e, legendItem) => {
+                    const name = legendItem.text;
+                    serviceVisible[name] = serviceVisible[name] === false;
+                    syncServiceToggles();
+                    renderServiceCharts(lastStats);
+                  }
+                : undefined,
+            },
+          },
+          scales: {
+            x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+            y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+          },
+        },
+      });
+    }
+
+    function doughnut(ctx, labels, values, { serviceLegend = false } = {}) {
+      return new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: labels.map((_, i) => PALETTE[i % PALETTE.length]),
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { boxWidth: 10, font: { size: 11 } },
+              onClick: serviceLegend
+                ? (_e, legendItem) => {
+                    const name = legendItem.text;
+                    serviceVisible[name] = serviceVisible[name] === false;
+                    syncServiceToggles();
+                    renderServiceCharts(lastStats);
+                  }
+                : undefined,
+            },
+          },
+        },
+      });
+    }
+
+    function barCompare(ctx, labels, values, label) {
+      return new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label,
+            data: values,
+            backgroundColor: labels.map((_, i) => PALETTE[i % PALETTE.length] + "cc"),
+            borderColor: labels.map((_, i) => PALETTE[i % PALETTE.length]),
+            borderWidth: 1,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } },
+            y: { beginAtZero: true },
+          },
+        },
+      });
+    }
+
+    function seriesDatasets(series, key, { dateOnly = false } = {}) {
+      const labels = series.map((s) => {
+        const d = new Date(s.bucket);
+        return dateOnly
+          ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+          : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" });
+      });
+      const names = new Set();
+      for (const s of series) {
+        Object.keys(s[key] || {}).forEach((n) => names.add(n));
+      }
+      const ordered = [...names].sort();
+      const datasets = ordered
+        .filter((name) => key !== "by_notes" || serviceVisible[name] !== false)
+        .map((name) => {
+          const i = ordered.indexOf(name);
+          return {
+            label: name,
+            data: series.map((s) => (s[key][name] && s[key][name].requests) || 0),
+            borderColor: PALETTE[i % PALETTE.length],
+            backgroundColor: PALETTE[i % PALETTE.length] + "55",
+            fill: true,
+            tension: 0.25,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          };
+        });
+      return { labels, datasets, names: ordered };
+    }
+
+    function collectServiceNames(data) {
+      const names = new Set();
+      for (const s of (data && data.series && data.series.hourly) || []) {
+        Object.keys(s.by_notes || {}).forEach((n) => names.add(n));
+      }
+      for (const s of (data && data.series && data.series.daily) || []) {
+        Object.keys(s.by_notes || {}).forEach((n) => names.add(n));
+      }
+      for (const n of (data && data.totals && data.totals.notes) || []) names.add(n.name);
+      return [...names].sort();
+    }
+
+    function syncServiceToggles() {
+      const names = collectServiceNames(lastStats || {});
+      const wrap = $("service-filters");
+      const host = $("service-toggles");
+      if (!names.length) {
+        wrap.hidden = true;
+        host.innerHTML = "";
+        return;
+      }
+      wrap.hidden = false;
+      host.innerHTML = names.map((name) => {
+        const on = serviceVisible[name] !== false;
+        return `<label class="svc-chip ${on ? "on" : ""}">
+          <input type="checkbox" data-svc="${escapeHtml(name)}" ${on ? "checked" : ""} />
+          ${escapeHtml(name)}
+        </label>`;
+      }).join("");
+      host.querySelectorAll("input[data-svc]").forEach((input) => {
+        input.addEventListener("change", () => {
+          serviceVisible[input.getAttribute("data-svc")] = input.checked;
+          renderServiceCharts(lastStats);
+          syncServiceToggles();
+        });
+      });
+    }
+
+    function renderTables(data) {
+      const models = data.totals.models || [];
+      const providers = data.totals.providers || [];
+      const notes = data.totals.notes || [];
+      $("model-rows").innerHTML = models.length
+        ? models.map((m) => `
+          <tr>
+            <td class="name">${escapeHtml(m.name)}</td>
+            <td class="provider">${escapeHtml(m.provider || "")}</td>
+            <td class="num">${fmtNum(m.requests)}</td>
+            <td class="num">${fmtNum(m.failures)}</td>
+            <td class="num">${pct(m.success_rate)}</td>
+            <td class="num">${m.avg_latency_ms.toFixed(0)}</td>
+            <td class="num">${m.max_latency_ms.toFixed(0)}</td>
+            <td class="num">${fmtNum(m.tokens_sum)}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="8" class="provider">no data yet</td></tr>`;
+      $("provider-rows").innerHTML = providers.length
+        ? providers.map((p) => `
+          <tr>
+            <td class="name">${escapeHtml(p.name)}</td>
+            <td class="num">${fmtNum(p.requests)}</td>
+            <td class="num">${fmtNum(p.failures)}</td>
+            <td class="num">${pct(p.success_rate)}</td>
+            <td class="num">${p.avg_latency_ms.toFixed(0)}</td>
+            <td class="num">${p.max_latency_ms.toFixed(0)}</td>
+            <td class="num">${fmtNum(p.tokens_sum)}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
+      $("notes-rows").innerHTML = notes.length
+        ? notes.map((n) => `
+          <tr>
+            <td class="name">${escapeHtml(n.name)}</td>
+            <td class="num">${fmtNum(n.requests)}</td>
+            <td class="num">${fmtNum(n.failures)}</td>
+            <td class="num">${pct(n.success_rate)}</td>
+            <td class="num">${n.avg_latency_ms.toFixed(0)}</td>
+            <td class="num">${n.max_latency_ms.toFixed(0)}</td>
+            <td class="num">${fmtNum(n.tokens_sum)}</td>
+          </tr>`).join("")
+        : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
+    }
+
+    function renderKpis(data) {
+      const models = data.totals.models || [];
+      const req = models.reduce((a, m) => a + m.requests, 0);
+      const fail = models.reduce((a, m) => a + m.failures, 0);
+      const latSum = models.reduce((a, m) => a + m.avg_latency_ms * m.requests, 0);
+      $("kpi-req").textContent = fmtNum(req);
+      $("kpi-fail").textContent = fmtNum(fail);
+      $("kpi-ok").textContent = req ? pct((req - fail) / req) : "—";
+      $("kpi-lat").textContent = req ? `${(latSum / req).toFixed(0)} ms` : "—";
+    }
+
+    function renderServiceCharts(data) {
+      if (!data) return;
+      const hourlyNotes = seriesDatasets(data.series.hourly || [], "by_notes");
+      destroyChart("hourlyNotes");
+      charts.hourlyNotes = stackedLine(
+        $("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets, { serviceLegend: true },
+      );
+
+      const dailyNotes = seriesDatasets(data.series.daily || [], "by_notes", { dateOnly: true });
+      destroyChart("dailyNotes");
+      charts.dailyNotes = stackedLine(
+        $("chart-daily-notes"), dailyNotes.labels, dailyNotes.datasets, { serviceLegend: true },
+      );
+
+      const notesPerf = (data.performance.notes || data.totals.notes || [])
+        .filter((n) => serviceVisible[n.name] !== false);
+      destroyChart("notesUsage");
+      charts.notesUsage = doughnut(
+        $("chart-notes-usage"),
+        notesPerf.map((n) => n.name),
+        notesPerf.map((n) => n.requests),
+        { serviceLegend: true },
+      );
+    }
+
+    function renderCharts(data) {
+      chartDefaults();
+      const hourly = seriesDatasets(data.series.hourly || [], "by_model");
+      destroyChart("hourly");
+      charts.hourly = stackedLine($("chart-hourly-model"), hourly.labels, hourly.datasets);
+
+      const daily = seriesDatasets(data.series.daily || [], "by_provider", { dateOnly: true });
+      destroyChart("daily");
+      charts.daily = stackedLine($("chart-daily-provider"), daily.labels, daily.datasets);
+
+      const perf = data.performance.models || [];
+      destroyChart("usage");
+      charts.usage = doughnut(
+        $("chart-usage"),
+        perf.map((m) => m.name),
+        perf.map((m) => m.requests),
+      );
+
+      destroyChart("perf");
+      charts.perf = barCompare(
+        $("chart-perf"),
+        perf.map((m) => m.name),
+        perf.map((m) => m.avg_latency_ms),
+        "avg latency ms",
+      );
+
+      renderServiceCharts(data);
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function load() {
+      const res = await fetch(`/v1/stats?range=${encodeURIComponent(range)}`);
+      if (!res.ok) throw new Error(`stats ${res.status}`);
+      const data = await res.json();
+      lastStats = data;
+      for (const name of collectServiceNames(data)) {
+        if (!(name in serviceVisible)) serviceVisible[name] = true;
+      }
+      $("mongo-banner").hidden = !!data.configured;
+      if (!data.configured) {
+        const detail = data.detail || "Set MONGODB_URI to enable historical stats";
+        $("mongo-banner").innerHTML = escapeHtml(detail);
+      }
+      $("meta").textContent = data.configured
+        ? `range ${data.range} · mongo ok · ${new Date().toLocaleTimeString()}`
+        : `range ${data.range} · mongo off · ${new Date().toLocaleTimeString()}`;
+      renderKpis(data);
+      renderTables(data);
+      if (typeof Chart !== "undefined") renderCharts(data);
+      syncServiceToggles();
+    }
+
+    $("range").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-range]");
+      if (!btn) return;
+      range = btn.dataset.range;
+      for (const b of $("range").querySelectorAll("button")) {
+        b.classList.toggle("active", b === btn);
+      }
+      load().catch((e) => { $("meta").textContent = String(e); });
+    });
+
+    $("svc-all").addEventListener("click", () => {
+      for (const name of collectServiceNames(lastStats || {})) serviceVisible[name] = true;
+      syncServiceToggles();
+      renderServiceCharts(lastStats);
+    });
+    $("svc-none").addEventListener("click", () => {
+      for (const name of collectServiceNames(lastStats || {})) serviceVisible[name] = false;
+      syncServiceToggles();
+      renderServiceCharts(lastStats);
+    });
+
+    function boot() {
+      load().catch((e) => { $("meta").textContent = String(e); });
+      setInterval(() => load().catch(() => {}), 15000);
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => {
+        if (typeof Chart === "undefined") {
+          window.addEventListener("load", boot);
+        } else boot();
+      });
+    } else {
+      window.addEventListener("load", boot);
+    }
+  </script>
+</body>
+</html>

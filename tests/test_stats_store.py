@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from llmrouter.stats_store import NullStatsStore, StatsStore, floor_day, floor_hour
+from llmcascade.stats_store import NullStatsStore, StatsStore, floor_day, floor_hour
 
 
 def test_floor_hour_day_utc():

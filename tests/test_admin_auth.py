@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture(autouse=True)
 def _clear_login_lockout():
-    from llmrouter.admin_auth import login_lockout
+    from llmcascade.admin_auth import login_lockout
 
     login_lockout._failures.clear()
     login_lockout._locked_until.clear()
@@ -21,15 +21,15 @@ def _clear_login_lockout():
 
 @pytest.fixture()
 def admin_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("LLMROUTER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LLMCASCADE_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SECRET_KEY", "test-secret-admin-auth-xxxxxxxx")
     monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
     monkeypatch.delenv("MONGODB_URI", raising=False)
     monkeypatch.delenv("REQUIRE_AUTH", raising=False)
     import importlib
-    import llmrouter.admin_auth as admin_auth
-    import llmrouter.api as api_mod
-    import llmrouter.auth_store as auth_store
+    import llmcascade.admin_auth as admin_auth
+    import llmcascade.api as api_mod
+    import llmcascade.auth_store as auth_store
 
     importlib.reload(auth_store)
     importlib.reload(admin_auth)
@@ -61,7 +61,7 @@ def test_first_run_forces_password_change(admin_client: TestClient):
     assert r.status_code == 303
     assert "/admin/change-password" in r.headers["location"]
 
-    csrf = admin_client.cookies.get("llmrouter_csrf")
+    csrf = admin_client.cookies.get("llmcascade_csrf")
     assert csrf
     r = admin_client.post(
         "/admin/change-password",
@@ -95,8 +95,8 @@ def test_csrf_required_on_password_change(admin_client: TestClient):
 
 def test_pwd_version_invalidates_old_jwt(admin_client: TestClient, monkeypatch: pytest.MonkeyPatch):
     _login(admin_client)
-    csrf = admin_client.cookies.get("llmrouter_csrf")
-    old_session = admin_client.cookies.get("llmrouter_session")
+    csrf = admin_client.cookies.get("llmcascade_csrf")
+    old_session = admin_client.cookies.get("llmcascade_session")
     admin_client.post(
         "/admin/change-password",
         data={
@@ -107,7 +107,7 @@ def test_pwd_version_invalidates_old_jwt(admin_client: TestClient, monkeypatch: 
         follow_redirects=False,
     )
     # Attach stale cookie and ensure rejection
-    admin_client.cookies.set("llmrouter_session", old_session)
+    admin_client.cookies.set("llmcascade_session", old_session)
     r = admin_client.get("/v1/events")
     assert r.status_code == 401
 
