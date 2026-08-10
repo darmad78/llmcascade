@@ -79,36 +79,40 @@ def resolve_auth_env(
     provider: str | None = None,
     key_tier: KeyTier = "free",
 ) -> str | None:
-    """Env vars win; encrypted provider_store (free/paid lists) is fallback."""
-    for name in _AUTH_ALIASES.get(auth_env_var, (auth_env_var,)):
-        val = os.environ.get(name)
-        if val:
-            return val
+    """Store keys preferred when present; else env (unless disable_env)."""
     if provider:
         try:
-            from llmrouter.provider_store import get_decrypted_key
+            from llmrouter.provider_store import env_disabled, get_decrypted_key
 
             stored = get_decrypted_key(provider, tier=key_tier)
             if stored:
                 return stored
-        except Exception:  # noqa: BLE001 — store optional at import/test time
-            return None
+            if env_disabled(provider):
+                return None
+        except Exception:  # noqa: BLE001
+            pass
+    for name in _AUTH_ALIASES.get(auth_env_var, (auth_env_var,)):
+        val = os.environ.get(name)
+        if val:
+            return val
     return None
 
 
 def key_source(auth_env_var: str, *, provider: str, key_tier: KeyTier = "free") -> KeySource:
-    for name in _AUTH_ALIASES.get(auth_env_var, (auth_env_var,)):
-        if os.environ.get(name):
-            return "env"
     try:
-        from llmrouter.provider_store import get_decrypted_keys
+        from llmrouter.provider_store import env_disabled, get_decrypted_keys
 
         if get_decrypted_keys(provider, tier=key_tier) or get_decrypted_keys(
             provider, tier="paid" if key_tier == "free" else "free"
         ):
             return "store"
+        if env_disabled(provider):
+            return "none"
     except Exception:  # noqa: BLE001
         pass
+    for name in _AUTH_ALIASES.get(auth_env_var, (auth_env_var,)):
+        if os.environ.get(name):
+            return "env"
     return "none"
 
 

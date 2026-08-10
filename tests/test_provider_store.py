@@ -39,11 +39,14 @@ def test_fernet_derived_not_raw_secret(secret_env):
     assert "sk-test" not in token
 
 
-def test_env_overrides_store(secret_env, monkeypatch: pytest.MonkeyPatch):
+def test_store_preferred_env_fallback(secret_env, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GROQ_API_KEY", "from-env")
     save_provider("groq", api_key="from-store", free_paid="free")
     assert resolve_auth_env("GROQ_API_KEY", provider="groq") == "from-store"
-    monkeypatch.setenv("GROQ_API_KEY", "from-env")
+    save_provider("groq", clear_free_keys=True, clear_paid_keys=True, disable_env=False)
     assert resolve_auth_env("GROQ_API_KEY", provider="groq") == "from-env"
+    save_provider("groq", clear_free_keys=True, clear_paid_keys=True, disable_env=True)
+    assert resolve_auth_env("GROQ_API_KEY", provider="groq") is None
 
 
 def test_reload_picks_up_stored_key(secret_env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

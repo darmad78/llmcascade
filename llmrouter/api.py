@@ -94,6 +94,9 @@ class ProviderSaveBody(BaseModel):
     add_paid_key: str | None = None
     clear_free_keys: bool = False
     clear_paid_keys: bool = False
+    replace_free_key: str | None = None
+    replace_paid_key: str | None = None
+    disable_env: bool | None = None
     csrf_token: str | None = None
 
 
@@ -460,12 +463,21 @@ async def admin_providers_page(request: Request) -> Response:
 
 @app.get("/admin/providers/data")
 async def admin_providers_data() -> dict[str, Any]:
+    import os
+
     stored = list_stored_providers()
     rows = []
     for info in list_providers():
         provider = info["provider"]
         meta = stored.get(provider, {})
         src = key_source(info["auth_env_var"], provider=provider)
+        env_set = bool(os.environ.get(info["auth_env_var"]))
+        if info["auth_env_var"] == "HF_TOKEN":
+            env_set = env_set or bool(os.environ.get("HUGGINGFACE_API_KEY"))
+        free_n = int(meta.get("free_key_count") or 0)
+        paid_n = int(meta.get("paid_key_count") or 0)
+        free_set = free_n > 0 or (src == "env" and env_set)
+        paid_set = paid_n > 0
         rows.append(
             {
                 "provider": provider,
@@ -473,8 +485,12 @@ async def admin_providers_data() -> dict[str, Any]:
                 "needs_account_id": info["needs_account_id"],
                 "key_set": src != "none",
                 "key_source": src,
-                "free_key_count": meta.get("free_key_count", 0),
-                "paid_key_count": meta.get("paid_key_count", 0),
+                "free_key_count": free_n,
+                "paid_key_count": paid_n,
+                "free_set": free_set,
+                "paid_set": paid_set,
+                "env_set": env_set,
+                "disable_env": bool(meta.get("disable_env")),
                 "free_paid": meta.get("free_paid", "free"),
             }
         )
@@ -523,6 +539,9 @@ async def admin_providers_save(request: Request, body: ProviderSaveBody) -> dict
         add_paid_key=body.add_paid_key,
         clear_free_keys=body.clear_free_keys,
         clear_paid_keys=body.clear_paid_keys,
+        replace_free_key=body.replace_free_key,
+        replace_paid_key=body.replace_paid_key,
+        disable_env=body.disable_env,
     )
     n = _require_client().reload_registry(allow_empty=True)
     events.record("provider keys reloaded", level="info", models=n, provider=provider)

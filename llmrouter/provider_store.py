@@ -103,6 +103,11 @@ def get_decrypted_keys(
     return _decrypt_list(list(entry.get(key) or []), secret=secret)
 
 
+def env_disabled(provider: str) -> bool:
+    entry = get_provider_entry(provider)
+    return bool(entry and entry.get("disable_env"))
+
+
 def get_decrypted_key(
     provider: str,
     *,
@@ -152,6 +157,9 @@ def save_provider(
     add_paid_key: str | None = None,
     clear_free_keys: bool = False,
     clear_paid_keys: bool = False,
+    replace_free_key: str | None = None,
+    replace_paid_key: str | None = None,
+    disable_env: bool | None = None,
     secret: str | None = None,
 ) -> dict[str, Any]:
     data = _load_raw()
@@ -183,6 +191,21 @@ def save_provider(
         else:
             entry.setdefault("free_keys_enc", []).append(enc)
 
+    if replace_free_key is not None:
+        entry["free_keys_enc"] = (
+            [encrypt_key(replace_free_key.strip(), secret=secret)]
+            if replace_free_key.strip()
+            else []
+        )
+        entry["disable_env"] = True
+    if replace_paid_key is not None:
+        entry["paid_keys_enc"] = (
+            [encrypt_key(replace_paid_key.strip(), secret=secret)]
+            if replace_paid_key.strip()
+            else []
+        )
+        entry["disable_env"] = True
+
     if add_free_key and add_free_key.strip():
         entry.setdefault("free_keys_enc", []).append(
             encrypt_key(add_free_key.strip(), secret=secret)
@@ -191,6 +214,9 @@ def save_provider(
         entry.setdefault("paid_keys_enc", []).append(
             encrypt_key(add_paid_key.strip(), secret=secret)
         )
+
+    if disable_env is not None:
+        entry["disable_env"] = bool(disable_env)
 
     if free_paid is not None:
         entry["free_paid"] = free_paid
@@ -216,5 +242,6 @@ def list_stored_providers() -> dict[str, dict[str, Any]]:
             "free_key_count": free_n,
             "paid_key_count": paid_n,
             "free_paid": get_free_paid(provider),
+            "disable_env": bool(migrated.get("disable_env")),
         }
     return out

@@ -90,11 +90,10 @@
             <tr>
               <th>Provider</th>
               <th>Source</th>
-              <th>Free keys</th>
-              <th>Add free</th>
-              <th>Paid keys</th>
-              <th>Add paid</th>
-              <th></th>
+              <th>Free key</th>
+              <th>Free replace</th>
+              <th>Paid key</th>
+              <th>Paid replace</th>
             </tr>
           </thead>
           <tbody id="provider-rows"></tbody>
@@ -163,62 +162,88 @@
     }
 
     function renderProviders(rows) {
-      $("provider-rows").innerHTML = rows.map((p) => `
-        <tr data-provider="${p.provider}">
+      $("provider-rows").innerHTML = rows.map((p) => {
+        const freeLabel = p.free_set
+          ? (p.free_key_count > 0
+              ? `•••••••• ×${p.free_key_count} (store)`
+              : "•••••••• (from .env)")
+          : "not set";
+        const paidLabel = p.paid_set
+          ? `•••••••• ×${p.paid_key_count} (store)`
+          : "not set";
+        return `
+        <tr data-provider="${p.provider}" data-env-set="${p.env_set ? "1" : "0"}">
           <td><strong>${p.provider}</strong><div class="src">${p.auth_env_var}${p.needs_account_id ? " + ACCOUNT_ID" : ""}</div></td>
-          <td class="src">${p.key_set ? p.key_source : "none"}</td>
-          <td class="src">${p.free_key_count || 0}
-            <button class="ghost" type="button" data-clear-free title="Clear free keys">clear</button>
+          <td class="src">${p.key_set ? p.key_source : "none"}${p.disable_env ? " · env off" : ""}</td>
+          <td>
+            <div class="src">${freeLabel}</div>
+            ${p.free_set ? '<button class="ghost" type="button" data-cancel-free>Cancel</button>' : ""}
           </td>
-          <td><input type="password" data-free placeholder="paste free key" /></td>
-          <td class="src">${p.paid_key_count || 0}
-            <button class="ghost" type="button" data-clear-paid title="Clear paid keys">clear</button>
+          <td>
+            <input type="password" data-free placeholder="${p.free_set ? "paste new free key to replace" : "paste free key"}" />
+            <button type="button" data-replace-free style="margin-top:0.25rem">${p.free_set ? "Replace" : "Add"}</button>
           </td>
-          <td><input type="password" data-paid placeholder="paste paid key" /></td>
-          <td><button type="button" data-save-prov>Save</button></td>
-        </tr>
-      `).join("");
-      $("provider-rows").querySelectorAll("[data-save-prov]").forEach((btn) => {
-        btn.addEventListener("click", () => saveProvider(btn.closest("tr")));
+          <td>
+            <div class="src">${paidLabel}</div>
+            ${p.paid_set ? '<button class="ghost" type="button" data-cancel-paid>Cancel</button>' : ""}
+          </td>
+          <td>
+            <input type="password" data-paid placeholder="${p.paid_set ? "paste new paid key to replace" : "paste paid key"}" />
+            <button type="button" data-replace-paid style="margin-top:0.25rem">${p.paid_set ? "Replace" : "Add"}</button>
+          </td>
+        </tr>`;
+      }).join("");
+      $("provider-rows").querySelectorAll("[data-replace-free]").forEach((btn) => {
+        btn.addEventListener("click", () => replaceKey(btn.closest("tr"), "free"));
       });
-      $("provider-rows").querySelectorAll("[data-clear-free]").forEach((btn) => {
-        btn.addEventListener("click", () => clearKeys(btn.closest("tr").dataset.provider, "free"));
+      $("provider-rows").querySelectorAll("[data-replace-paid]").forEach((btn) => {
+        btn.addEventListener("click", () => replaceKey(btn.closest("tr"), "paid"));
       });
-      $("provider-rows").querySelectorAll("[data-clear-paid]").forEach((btn) => {
-        btn.addEventListener("click", () => clearKeys(btn.closest("tr").dataset.provider, "paid"));
+      $("provider-rows").querySelectorAll("[data-cancel-free]").forEach((btn) => {
+        btn.addEventListener("click", () => cancelKey(btn.closest("tr"), "free"));
+      });
+      $("provider-rows").querySelectorAll("[data-cancel-paid]").forEach((btn) => {
+        btn.addEventListener("click", () => cancelKey(btn.closest("tr"), "paid"));
       });
     }
 
-    async function saveProvider(tr) {
+    async function replaceKey(tr, tier) {
       const provider = tr.dataset.provider;
-      const body = { provider, csrf_token: CSRF_TOKEN };
-      const free = tr.querySelector("[data-free]").value.trim();
-      const paid = tr.querySelector("[data-paid]").value.trim();
-      if (free) body.add_free_key = free;
-      if (paid) body.add_paid_key = paid;
-      if (!free && !paid) {
-        setMsg("Enter at least one key to add", false);
+      const input = tr.querySelector(tier === "free" ? "[data-free]" : "[data-paid]");
+      const val = input.value.trim();
+      if (!val) {
+        setMsg("Paste a key first, then click Replace/Add", false);
         return;
       }
-      setMsg("Saving keys…", true);
+      const body = { provider, csrf_token: CSRF_TOKEN };
+      if (tier === "free") body.replace_free_key = val;
+      else body.replace_paid_key = val;
+      setMsg(`Replacing ${tier} key for ${provider}…`, true);
       const res = await fetch("/admin/providers", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(data.detail || "save failed", false); return; }
-      setMsg(`Saved keys for ${provider}; ${data.models} active model(s).`, true);
+      if (!res.ok) { setMsg(data.detail || "replace failed", false); return; }
+      setMsg(`Updated ${tier} key for ${provider}; ${data.models} active model(s).`, true);
       await load();
     }
 
-    async function clearKeys(provider, tier) {
+    async function cancelKey(tr, tier) {
+      const provider = tr.dataset.provider;
+      const envSet = tr.dataset.envSet === "1";
       const body = {
         provider,
         csrf_token: CSRF_TOKEN,
         clear_free_keys: tier === "free",
         clear_paid_keys: tier === "paid",
+        // Stop using .env for this provider so Cancel actually removes the active key.
+        disable_env: envSet ? true : undefined,
       };
+      if (!confirm(`Cancel ${tier} key for ${provider}?${envSet ? " This also ignores the .env key until you add a new one." : ""}`)) {
+        return;
+      }
       const res = await fetch("/admin/providers", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(data.detail || "clear failed", false); return; }
-      setMsg(`Cleared ${tier} keys for ${provider}`, true);
+      if (!res.ok) { setMsg(data.detail || "cancel failed", false); return; }
+      setMsg(`Cancelled ${tier} key for ${provider}`, true);
       await load();
     }
 
