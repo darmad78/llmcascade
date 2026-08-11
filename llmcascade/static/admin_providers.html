@@ -95,7 +95,7 @@
       Env vars are fallback when no UI keys. Each provider can hold multiple <strong>free</strong> and <strong>paid</strong> keys (rotated).
       Models are grouped by provider (collapsed by default). Cascade families (e.g. gemini) list each model id; chance reorders cascade tries, hide drops that id.
     </p>
-    <p class="note warn">Key tier on a model picks the free or paid key pool — it does not block spend by itself.</p>
+    <p class="note warn">Key tier picks the free or paid key pool. Models with tier <strong>paid</strong> are excluded from auto-select unless <code>ALLOW_PAID=true</code>.</p>
 
     <section class="panel">
       <h2>Provider keys</h2>

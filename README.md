@@ -13,10 +13,10 @@ Framework-independent library (`RouterClient`) plus an optional FastAPI HTTP lay
 - Async queue + worker pool with backpressure (`QueueFullError`)
 - Structured JSON request logs (metadata only) + in-memory metrics
 - Status dashboard (`/dashboard`) with per-model health, budgets, event/error logs
-- Admin UI (`/admin/providers`) for encrypted provider keys + Free/Paid labels
+- Admin UI (`/admin/providers`) for encrypted provider keys + Free/Paid key pools (`ALLOW_PAID` spend gate)
 - Optional free-text `notes` on completions (event log + stats grouping by source)
 - Historical stats UI (`/stats`) with MongoDB persistence when `MONGODB_URI` is set
-- Optional `POST /v1/complete` HTTP API with opt-in API-key auth + per-key RPM
+- Optional `POST /v1/complete` HTTP API with opt-in API-key auth (bcrypt hashes supported) + per-key RPM; `LLMCASCADE_PROFILE=production` forces auth
 
 ## Supported providers
 
@@ -248,16 +248,26 @@ curl -s http://localhost:12000/v1/complete \
 
 ### Optional API-key auth on `/v1/complete`
 
-Disabled by default (`REQUIRE_AUTH=false`). To require a key:
+Disabled by default for local/dev (`REQUIRE_AUTH=false`). Auth is **forced** when `LLMCASCADE_PROFILE=production` (or `prod`).
 
 ```bash
+# either:
 REQUIRE_AUTH=true
-LLMCASCADE_API_KEYS=change-me,another-key
+# or:
+# LLMCASCADE_PROFILE=production
+
+# Prefer bcrypt hashes (quote — shells expand $):
+# python -c "from llmcascade.api_auth import hash_api_key; print(hash_api_key('change-me'))"
+LLMCASCADE_API_KEY_HASHES='$2b$12$...'
+# Plaintext still accepted for migration:
+# LLMCASCADE_API_KEYS=change-me,another-key
 # optional per-key RPM (process-local):
 LLMCASCADE_API_RPM=60
 ```
 
 Clients send `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+
+Paid spend gate: models with `key_tier=paid` are skipped unless `ALLOW_PAID=true`.
 
 ### Admin auth + provider keys
 
@@ -336,10 +346,10 @@ llmcascade/
 **Self-hosted only.** This is not a multi-tenant hosted service.
 
 - Uvicorn examples often bind `0.0.0.0`. That exposes the process on all interfaces. Prefer `127.0.0.1` behind a reverse proxy, or firewall the port.
-- **`POST /v1/complete` has no auth unless you set `REQUIRE_AUTH=true` and `LLMCASCADE_API_KEYS`.** Do not expose it to the public internet without that (plus TLS).
+- **`POST /v1/complete` has no auth unless `REQUIRE_AUTH=true` or `LLMCASCADE_PROFILE=production`.** Production profile refuses to start without `LLMCASCADE_API_KEYS` / `LLMCASCADE_API_KEY_HASHES`. Prefer bcrypt hashes over plaintext keys.
 - The admin UI (`/login`, `/dashboard`, `/stats`, `/admin/*`, and related `/v1/*` data routes) uses a **separate** JWT cookie auth layer. Enabling API-key auth does not protect the dashboard by itself, and logging into the dashboard does not authorize `/v1/complete`.
-- Do **not** put an unauthenticated llmcascade on the public internet. Minimum for any internet exposure: `REQUIRE_AUTH=true`, strong `LLMCASCADE_API_KEYS`, changed admin password, reverse proxy + TLS, and `LLMCASCADE_COOKIE_SECURE=true`.
-- **Free/Paid** on `/admin/providers` is a **display-only** label. Paid providers with a configured key are still selected automatically by routing — the label does not block spend or exclude models.
+- Do **not** put an unauthenticated llmcascade on the public internet. Minimum for any internet exposure: `LLMCASCADE_PROFILE=production` (or `REQUIRE_AUTH=true`), hashed API credentials, changed admin password, reverse proxy + TLS, and `LLMCASCADE_COOKIE_SECURE=true`.
+- **Paid spend gate:** models with `key_tier=paid` are excluded from auto-select unless `ALLOW_PAID=true`. Free/paid key pools on `/admin/providers` still choose which encrypted key is used once a model is eligible.
 - Provider keys: `.env` (gitignored) and/or encrypted UI store under `LLMCASCADE_DATA_DIR`. Never commit secrets.
 - Logging / `/v1/events`: metadata only (model, provider, latency, tokens, capability, safe error status). No prompts, completions, API keys, or raw provider response bodies.
 - Single-worker limitation remains: budgets and lockouts are process-local.

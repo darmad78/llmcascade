@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -18,6 +19,16 @@ Strategy = Literal["round_robin", "least_used", "priority_first", "weighted"]
 Executor = Callable[[ModelConfig, str], Awaitable[LLMResponse]]
 
 RETRY_SLEEP_S = 0.25
+
+
+def allow_paid_models() -> bool:
+    """When false (default), models with key_tier=paid are excluded from auto-select."""
+    return (os.environ.get("ALLOW_PAID") or "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _weighted_pick(eligible: list[ModelConfig]) -> ModelConfig:
@@ -43,11 +54,14 @@ class ModelSelector:
         self._rr_index = 0
 
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
+        paid_ok = allow_paid_models()
         out: list[ModelConfig] = []
         for m in self.registry:
             if not getattr(m, "enabled", True):
                 continue
             if capability not in m.capabilities:
+                continue
+            if getattr(m, "key_tier", "free") == "paid" and not paid_ok:
                 continue
             if await self.rate_limiter.can_proceed(m.name, tokens_estimate):
                 out.append(m)

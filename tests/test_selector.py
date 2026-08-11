@@ -8,7 +8,7 @@ from llmcascade.selector import ModelSelector
 from datetime import datetime, timezone
 
 
-def _m(name: str, priority: int = 1) -> ModelConfig:
+def _m(name: str, priority: int = 1, *, key_tier: str = "free") -> ModelConfig:
     return ModelConfig(
         name=name,
         provider="groq",
@@ -17,6 +17,7 @@ def _m(name: str, priority: int = 1) -> ModelConfig:
         limits=Limits(rpd=100, rpm=100, rps=100, tpm=100000, max_context=4096),
         capabilities=["chat"],
         priority=priority,
+        key_tier=key_tier,  # type: ignore[arg-type]
     )
 
 
@@ -156,3 +157,25 @@ async def test_rate_cooldown_learns_retry_after():
     assert until is not None
     remaining = (until - datetime.now(timezone.utc)).total_seconds()
     assert 100 <= remaining <= 120
+
+
+@pytest.mark.asyncio
+async def test_paid_models_excluded_unless_allow_paid(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ALLOW_PAID", raising=False)
+    models = [_m("free-m"), _m("paid-m", key_tier="paid")]
+    lim = RateLimiter(models)
+    sel = ModelSelector(models, lim, strategy="round_robin")
+    eligible = await sel._eligible("chat", 1)
+    assert [m.name for m in eligible] == ["free-m"]
+
+    monkeypatch.setenv("ALLOW_PAID", "true")
+    eligible = await sel._eligible("chat", 1)
+    assert {m.name for m in eligible} == {"free-m", "paid-m"}
+
+
+@pytest.mark.asyncio
+async def test_paid_only_registry_exhausted_when_gated(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ALLOW_PAID", raising=False)
+    models = [_m("paid-only", key_tier="paid")]
+    sel = ModelSelector(models, RateLimiter(models))
+    assert await sel.pick("chat") is None

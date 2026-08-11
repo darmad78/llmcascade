@@ -36,8 +36,9 @@ from llmcascade.admin_auth import (
 )
 from llmcascade.api_auth import (
     api_rpm_limit,
-    configured_api_keys,
+    auth_credentials_configured,
     extract_api_key,
+    is_production_profile,
     require_auth_enabled,
     validate_api_key,
 )
@@ -182,7 +183,24 @@ async def lifespan(app: FastAPI):
 
     secret = resolve_secret_key()
     if not (os.environ.get("SECRET_KEY") or "").strip():
-        log.warning("SECRET_KEY unset — using auto-generated key in LLMCASCADE_DATA_DIR; set SECRET_KEY in production")
+        log.warning(
+            "SECRET_KEY unset — using auto-generated key in LLMCASCADE_DATA_DIR; set SECRET_KEY in production"
+        )
+    if is_production_profile():
+        if not auth_credentials_configured():
+            raise RuntimeError(
+                "LLMCASCADE_PROFILE=production requires REQUIRE_AUTH credentials "
+                "(LLMCASCADE_API_KEYS and/or LLMCASCADE_API_KEY_HASHES)"
+            )
+        if not (os.environ.get("SECRET_KEY") or "").strip():
+            log.warning(
+                "LLMCASCADE_PROFILE=production but SECRET_KEY unset — set an explicit SECRET_KEY"
+            )
+    elif not require_auth_enabled():
+        log.warning(
+            "POST /v1/complete is open (REQUIRE_AUTH unset). "
+            "Set REQUIRE_AUTH=true or LLMCASCADE_PROFILE=production before exposing beyond localhost"
+        )
     ensure_admin()
 
     rpm = api_rpm_limit()
@@ -259,17 +277,19 @@ def _require_csrf(request: Request, submitted: str | None) -> None:
 async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
     global _api_limiter
     if require_auth_enabled():
-        keys = configured_api_keys()
-        if not keys:
+        if not auth_credentials_configured():
             raise HTTPException(
                 status_code=503,
-                detail="REQUIRE_AUTH=true but LLMCASCADE_API_KEYS is empty",
+                detail=(
+                    "API auth required but no credentials configured "
+                    "(set LLMCASCADE_API_KEYS and/or LLMCASCADE_API_KEY_HASHES)"
+                ),
             )
         api_key = extract_api_key(
             request.headers.get("authorization"),
             request.headers.get("x-api-key"),
         )
-        if not validate_api_key(api_key, keys):
+        if not validate_api_key(api_key):
             raise HTTPException(status_code=401, detail="invalid or missing API key")
         rpm = api_rpm_limit()
         if rpm is not None and api_key is not None:
