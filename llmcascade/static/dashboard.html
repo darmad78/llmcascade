@@ -183,6 +183,17 @@
     .log-window .ok-line { color: var(--ok); }
     .log-window .ts { color: var(--muted); }
     .empty { color: var(--muted); }
+    .event-filters {
+      display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem;
+      margin: 0 0 0.55rem; align-items: center;
+    }
+    .event-filters label {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      font-size: 0.72rem; color: var(--muted); cursor: pointer;
+      font-family: var(--mono); user-select: none;
+    }
+    .event-filters label:hover { color: var(--text); }
+    .event-filters input { accent-color: var(--accent); }
     #gemini-panel[hidden] { display: none; }
     .shell {
       display: grid;
@@ -380,6 +391,7 @@
     <section class="logs">
       <div class="panel">
         <h2>Event log</h2>
+        <div class="event-filters" id="event-filters" aria-label="Filter event types"></div>
         <div class="log-window" id="events"><span class="empty">no events yet</span></div>
       </div>
       <div class="panel">
@@ -539,6 +551,46 @@
       if (stickTop) el.scrollTop = 0;
     }
 
+    const EVENT_TYPE_LABELS = [
+      ["health", "health"],
+      ["request_ok", "request ok"],
+      ["request_fail", "request fail"],
+      ["cooldown", "cooldown"],
+      ["queue", "queue"],
+      ["admin", "admin"],
+      ["lifecycle", "lifecycle"],
+      ["system", "system"],
+    ];
+    // Health probes are noisy — off by default.
+    const eventTypeVisible = Object.fromEntries(
+      EVENT_TYPE_LABELS.map(([k]) => [k, k !== "health"])
+    );
+    let lastEvents = [];
+    let lastErrors = [];
+
+    function eventTypeOf(e) {
+      return e.type || "system";
+    }
+
+    function filterByType(items) {
+      return items.filter((e) => eventTypeVisible[eventTypeOf(e)] !== false);
+    }
+
+    function renderEventFilters() {
+      const wrap = $("event-filters");
+      wrap.innerHTML = EVENT_TYPE_LABELS.map(([key, label]) => {
+        const on = eventTypeVisible[key] !== false;
+        return `<label><input type="checkbox" data-etype="${escapeHtml(key)}" ${on ? "checked" : ""} /> ${escapeHtml(label)}</label>`;
+      }).join("");
+      wrap.querySelectorAll("input[data-etype]").forEach((inp) => {
+        inp.addEventListener("change", () => {
+          eventTypeVisible[inp.dataset.etype] = inp.checked;
+          renderLog($("events"), filterByType(lastEvents), "no events yet");
+          renderLog($("errors"), filterByType(lastErrors), "no errors");
+        });
+      });
+    }
+
     function escapeHtml(s) {
       return String(s ?? "")
         .replaceAll("&", "&amp;")
@@ -554,8 +606,10 @@
         const data = await res.json();
         renderModels(data.models || [], data.next_pick);
         renderGemini(data.gemini_cascade);
-        renderLog($("events"), data.events || [], "no events yet");
-        renderLog($("errors"), data.errors || [], "no errors");
+        lastEvents = data.events || [];
+        lastErrors = data.errors || [];
+        renderLog($("events"), filterByType(lastEvents), "no events yet");
+        renderLog($("errors"), filterByType(lastErrors), "no errors");
         const q = data.queue || {};
         const next = data.next_pick
           ? `next ${data.next_pick.name}`
@@ -567,6 +621,7 @@
       }
     }
 
+    renderEventFilters();
     refresh();
     setInterval(refresh, 2000);
 

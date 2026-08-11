@@ -201,7 +201,7 @@ class RouterClient:
             detail: dict[str, Any] = {"capability": capability}
             if notes:
                 detail["notes"] = notes
-            events.record("request queue is full", level="error", **detail)
+            events.record("request queue is full", level="error", type="queue", **detail)
             raise QueueFullError("request queue is full") from exc
         return await fut
 
@@ -237,7 +237,7 @@ class RouterClient:
             health = await self.health_snapshot(force=force_health)
         except Exception as exc:  # noqa: BLE001 — keep dashboard up if a probe crashes
             health = {}
-            events.record(f"health probe failed: {exc}", level="error")
+            events.record(f"health probe failed: {exc}", level="error", type="health")
         next_model = await self.selector.peek("chat", tokens_estimate=1)
         cooling = budgets.get("model_cooldowns") or {}
         if not isinstance(cooling, dict):

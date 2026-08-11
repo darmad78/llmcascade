@@ -157,6 +157,7 @@ class ModelSelector:
                 events.record(
                     "request ok",
                     level="info",
+                    type="request_ok",
                     model=model.name,
                     provider=model.provider,
                     success=True,
@@ -190,6 +191,7 @@ class ModelSelector:
                         events.record(
                             f"cooldown [{kind}]",
                             level="warn",
+                            type="cooldown",
                             model=model.name,
                             provider=model.provider,
                             error=safe_error_message(exc),
@@ -211,6 +213,7 @@ class ModelSelector:
                 events.record(
                     "request fail",
                     level="error",
+                    type="request_fail",
                     model=model.name,
                     provider=model.provider,
                     success=False,
@@ -226,6 +229,7 @@ class ModelSelector:
         events.record(
             f"no free-tier model succeeded for capability={capability!r}",
             level="error",
+            type="request_fail",
             capability=capability,
             error=safe_error_message(last_err) if last_err else None,
             **note_detail,

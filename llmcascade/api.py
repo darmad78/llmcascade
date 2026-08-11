@@ -193,7 +193,7 @@ async def lifespan(app: FastAPI):
         _stats = await StatsStore.connect()
     except Exception as exc:  # noqa: BLE001
         detail = f"MongoDB connect failed: {exc}"
-        events.record(detail, level="error")
+        events.record(detail, level="error", type="system")
         _stats = NullStatsStore(detail=detail)
     if _stats is None:
         _stats = NullStatsStore(
@@ -204,6 +204,7 @@ async def lifespan(app: FastAPI):
     events.record(
         "router started",
         level="info",
+        type="lifecycle",
         models=len(_client.registry),
         stats_configured=_stats.configured,
     )
@@ -211,7 +212,7 @@ async def lifespan(app: FastAPI):
     yield
     await _client.shutdown(graceful=True)
     await _stats.close()
-    events.record("router stopped", level="info")
+    events.record("router stopped", level="info", type="lifecycle")
     _client = None
     _stats = None
     _api_limiter = None
@@ -287,7 +288,7 @@ async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
         if body.notes and str(body.notes).strip():
             detail["notes"] = str(body.notes).strip()
         safe = safe_error_message(exc)
-        events.record(safe, level="error", **detail)
+        events.record(safe, level="error", type="request_fail", **detail)
         raise HTTPException(status_code=502, detail=safe) from exc
 
 
@@ -579,7 +580,13 @@ async def admin_providers_save(request: Request, body: ProviderSaveBody) -> dict
         disable_env=body.disable_env,
     )
     n = _require_client().reload_registry(allow_empty=True)
-    events.record("provider keys reloaded", level="info", models=n, provider=provider)
+    events.record(
+        "provider keys reloaded",
+        level="info",
+        type="admin",
+        models=n,
+        provider=provider,
+    )
     return {"ok": True, "models": n, "provider": provider}
 
 
@@ -630,7 +637,14 @@ async def admin_models_save(request: Request, body: ModelSaveBody) -> dict[str, 
             "models": len(client.registry),
         }
     n = client.reload_registry(allow_empty=True)
-    events.record("custom model saved", level="info", model=name, provider=provider, models=n)
+    events.record(
+        "custom model saved",
+        level="info",
+        type="admin",
+        model=name,
+        provider=provider,
+        models=n,
+    )
     return {"ok": True, "saved": True, "test": probe.to_dict(), "models": n, "name": name}
 
 
@@ -646,6 +660,7 @@ async def admin_models_override(request: Request, body: ModelOverrideBody) -> di
     events.record(
         "model override",
         level="info",
+        type="admin",
         model=name,
         enabled=body.enabled,
         weight=body.weight,

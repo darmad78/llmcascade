@@ -6,9 +6,9 @@ from llmcascade.health import _classify
 
 def test_event_log_splits_errors():
     log = EventLog(maxlen=10)
-    log.record("ok", level="info", success=True)
-    log.record("boom", level="error", model="m1")
-    log.record("fail", level="info", success=False, model="m2")
+    log.record("ok", level="info", type="request_ok", success=True)
+    log.record("boom", level="error", type="system", model="m1")
+    log.record("fail", level="info", type="request_fail", success=False, model="m2")
 
     assert len(log.events()) == 3
     errs = log.errors()
@@ -23,6 +23,16 @@ def test_event_log_ring_buffer():
         log.record(f"e{i}")
     msgs = [e["message"] for e in log.events()]
     assert msgs == ["e4", "e3", "e2"]
+
+
+def test_event_log_records_type():
+    log = EventLog(maxlen=10)
+    log.record("health ok", type="health", model="m1")
+    log.record("request ok", type="request_ok", success=True)
+    log.record("request fail", type="request_fail", success=False)
+    types = [e["type"] for e in log.events()]
+    assert types == ["request_fail", "request_ok", "health"]
+    assert log.events()[0]["type"] == "request_fail"
 
 
 def test_classify_health():

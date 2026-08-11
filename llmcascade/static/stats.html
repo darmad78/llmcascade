@@ -15,6 +15,8 @@
       --ok: #3dba7a;
       --warn: #d4a017;
       --bad: #e05a5a;
+      --accent: #3a6ea5;
+      --note: #2aabb8;
       --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
       --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
     }
@@ -25,8 +27,8 @@
       font-family: var(--sans);
       color: var(--text);
       background:
-        radial-gradient(1200px 600px at 10% -10%, #1c2a3a 0%, transparent 55%),
-        radial-gradient(900px 500px at 100% 0%, #1a2830 0%, transparent 50%),
+        radial-gradient(1100px 520px at 8% -12%, #1a3340 0%, transparent 55%),
+        radial-gradient(900px 480px at 95% 0%, #1c2438 0%, transparent 50%),
         var(--bg);
     }
     header {
@@ -37,186 +39,162 @@
       padding: 1.25rem 1.5rem 0.75rem;
       border-bottom: 1px solid var(--line);
     }
-    .header-left {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.85rem 1.25rem;
-    }
-    h1 {
-      margin: 0;
-      font-size: 1.35rem;
-      font-weight: 650;
-      letter-spacing: -0.02em;
-    }
+    .header-left { display: flex; flex-wrap: wrap; align-items: center; gap: 0.85rem 1.25rem; }
+    h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -0.02em; }
     h1 span { color: var(--muted); font-weight: 500; }
-    .page-nav { display: flex; gap: 0.4rem; }
+    .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     .nav-btn {
-      display: inline-block;
-      padding: 0.28rem 0.7rem;
-      border-radius: 4px;
-      border: 1px solid var(--line);
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 0.78rem;
-      font-weight: 550;
-      letter-spacing: 0.02em;
+      display: inline-block; padding: 0.28rem 0.7rem; border-radius: 4px;
+      border: 1px solid var(--line); color: var(--muted); text-decoration: none;
+      font-size: 0.78rem; font-weight: 550; letter-spacing: 0.02em;
     }
     .nav-btn:hover { color: var(--text); border-color: var(--muted); }
     .nav-btn.is-active {
       color: var(--text);
-      border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
-      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+      background: color-mix(in srgb, var(--accent) 22%, var(--panel));
     }
     .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
     .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.6rem 1rem;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem;
       padding: 0.85rem 1.5rem 0;
     }
     .toolbar label {
-      color: var(--muted);
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;
     }
     .range-btns { display: flex; gap: 0.35rem; }
-    .range-btns button {
-      appearance: none;
-      padding: 0.28rem 0.65rem;
-      border-radius: 4px;
-      border: 1px solid var(--line);
-      background: transparent;
-      color: var(--muted);
-      font: inherit;
-      font-size: 0.78rem;
-      font-family: var(--mono);
-      cursor: pointer;
+    .range-btns button, .svc-filters button.ghost {
+      appearance: none; padding: 0.28rem 0.65rem; border-radius: 4px;
+      border: 1px solid var(--line); background: transparent; color: var(--muted);
+      font: inherit; font-size: 0.78rem; font-family: var(--mono); cursor: pointer;
     }
-    .range-btns button:hover { color: var(--text); }
+    .range-btns button:hover, .svc-filters button.ghost:hover { color: var(--text); }
     .range-btns button.active {
       color: var(--text);
-      border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
-      background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+      background: color-mix(in srgb, var(--accent) 22%, var(--panel));
     }
-    main {
-      display: grid;
-      gap: 1rem;
-      padding: 1rem 1.5rem 1.5rem;
-    }
+    main { display: grid; gap: 1rem; padding: 1rem 1.5rem 2rem; }
     h2 {
-      margin: 0 0 0.6rem;
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
+      margin: 0 0 0.6rem; font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
     }
+    .section-title {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+      margin: 0.4rem 0 0.2rem;
+    }
+    .section-title h2 {
+      margin: 0; font-size: 0.95rem; letter-spacing: 0.04em; color: var(--text);
+      text-transform: none; font-weight: 650;
+    }
+    .section-title .sub { color: var(--muted); font-size: 0.78rem; }
     .panel {
       background: color-mix(in srgb, var(--panel) 92%, transparent);
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 0.85rem;
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.85rem;
+    }
+    .panel.note-glow {
+      border-color: color-mix(in srgb, var(--note) 35%, var(--line));
+      background:
+        linear-gradient(165deg, color-mix(in srgb, var(--note) 10%, transparent), transparent 42%),
+        color-mix(in srgb, var(--panel) 92%, transparent);
     }
     .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.75rem;
+      display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem;
     }
-    @media (max-width: 900px) {
+    @media (max-width: 1100px) {
+      .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 700px) {
       .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .kpi {
-      padding: 0.75rem 0.85rem;
-      border: 1px solid var(--line);
-      border-radius: 6px;
+      padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 8px;
       background: #0b1015;
     }
     .kpi .label {
-      color: var(--muted);
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.35rem;
+      color: var(--muted); font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 0.35rem;
     }
-    .kpi .value {
-      font-family: var(--mono);
-      font-size: 1.25rem;
-      font-weight: 550;
-    }
+    .kpi .value { font-family: var(--mono); font-size: 1.2rem; font-weight: 550; }
+    .kpi.ok .value { color: var(--ok); }
+    .kpi.bad .value { color: var(--bad); }
+    .kpi.note .value { color: var(--note); }
     .charts {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
     }
+    .charts.wide > .panel.span-2 { grid-column: 1 / -1; }
     @media (max-width: 1000px) {
       .charts { grid-template-columns: 1fr; }
+      .charts.wide > .panel.span-2 { grid-column: auto; }
     }
-    .chart-wrap {
-      position: relative;
-      height: 280px;
+    .chart-wrap { position: relative; height: 280px; }
+    .chart-wrap.tall { height: 320px; }
+    .chart-wrap.short { height: 180px; }
+    .note-cards {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem;
     }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
+    .note-card {
+      border: 1px solid color-mix(in srgb, var(--note) 28%, var(--line));
+      border-radius: 10px; padding: 0.8rem 0.85rem 0.55rem;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--note) 8%, #0b1015), #0b1015);
+      min-height: 148px; display: grid; gap: 0.35rem;
     }
+    .note-card .nc-name {
+      font-family: var(--mono); font-size: 0.86rem; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .note-card .nc-metrics {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem 0.6rem;
+      font-size: 0.72rem; color: var(--muted);
+    }
+    .note-card .nc-metrics strong {
+      display: block; color: var(--text); font-family: var(--mono); font-size: 0.9rem; font-weight: 550;
+    }
+    .note-card .nc-spark { height: 52px; position: relative; margin-top: 0.15rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     th, td {
-      text-align: left;
-      padding: 0.45rem 0.5rem;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
+      text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top;
     }
     th {
-      color: var(--muted);
-      font-weight: 550;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      color: var(--muted); font-weight: 550; font-size: 0.75rem;
+      text-transform: uppercase; letter-spacing: 0.04em;
     }
     tr:last-child td { border-bottom: none; }
     .name { font-family: var(--mono); font-size: 0.82rem; }
     .provider { color: var(--muted); font-size: 0.8rem; }
     .num { font-family: var(--mono); font-size: 0.82rem; }
     .banner {
-      padding: 0.75rem 0.9rem;
-      border-radius: 6px;
+      padding: 0.75rem 0.9rem; border-radius: 6px;
       border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
       background: color-mix(in srgb, var(--warn) 12%, var(--panel));
-      color: var(--text);
-      font-size: 0.88rem;
-    }
-    .banner code {
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      color: var(--warn);
+      color: var(--text); font-size: 0.88rem;
     }
     #mongo-banner[hidden] { display: none; }
     .svc-filters {
       display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
-      margin: 0 0 0.75rem; padding: 0.65rem 0.75rem;
-      background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+      margin: 0; padding: 0.75rem 0.9rem;
+      background: color-mix(in srgb, var(--note) 8%, var(--panel));
+      border: 1px solid color-mix(in srgb, var(--note) 30%, var(--line));
+      border-radius: 10px;
     }
-    .svc-filters .hint { color: var(--muted); font-size: 0.75rem; margin-right: 0.35rem; }
+    .svc-filters .hint {
+      color: var(--note); font-size: 0.75rem; margin-right: 0.35rem;
+      text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+    }
     .svc-chip {
       display: inline-flex; align-items: center; gap: 0.35rem;
       padding: 0.22rem 0.55rem; border-radius: 4px; cursor: pointer;
       border: 1px solid var(--line); color: var(--muted); font-size: 0.78rem;
-      font-family: var(--mono); user-select: none;
-      background: transparent;
+      font-family: var(--mono); user-select: none; background: transparent;
     }
-    .svc-chip input { accent-color: #3a6ea5; margin: 0; }
+    .svc-chip input { accent-color: var(--note); margin: 0; }
     .svc-chip.on {
       color: var(--text);
-      border-color: color-mix(in srgb, #3a6ea5 45%, var(--line));
-      background: color-mix(in srgb, #3a6ea5 18%, var(--panel));
+      border-color: color-mix(in srgb, var(--note) 45%, var(--line));
+      background: color-mix(in srgb, var(--note) 18%, var(--panel));
     }
-    .svc-filters button.ghost {
-      padding: 0.22rem 0.55rem; border-radius: 4px; cursor: pointer;
-      border: 1px solid var(--line); background: transparent; color: var(--muted);
-      font-size: 0.75rem;
+    .empty-hint {
+      color: var(--muted); font-size: 0.85rem; padding: 1.5rem 0.5rem; text-align: center;
     }
   </style>
 </head>
@@ -244,19 +222,61 @@
   </div>
   <main>
     <div class="banner" id="mongo-banner" hidden></div>
-    <section class="kpi-row" id="kpis">
-      <div class="kpi"><div class="label">Requests</div><div class="value" id="kpi-req">—</div></div>
-      <div class="kpi"><div class="label">Failures</div><div class="value" id="kpi-fail">—</div></div>
-      <div class="kpi"><div class="label">Success rate</div><div class="value" id="kpi-ok">—</div></div>
-      <div class="kpi"><div class="label">Avg latency</div><div class="value" id="kpi-lat">—</div></div>
-    </section>
+
     <section class="svc-filters" id="service-filters" hidden>
-      <span class="hint">Services (toggle):</span>
+      <span class="hint">Filter by notes</span>
       <span id="service-toggles"></span>
       <button type="button" class="ghost" id="svc-all">All</button>
       <button type="button" class="ghost" id="svc-none">None</button>
     </section>
-    <section class="charts">
+
+    <section class="kpi-row" id="kpis">
+      <div class="kpi"><div class="label">Requests</div><div class="value" id="kpi-req">—</div></div>
+      <div class="kpi bad"><div class="label">Failures</div><div class="value" id="kpi-fail">—</div></div>
+      <div class="kpi ok"><div class="label">Success rate</div><div class="value" id="kpi-ok">—</div></div>
+      <div class="kpi"><div class="label">Avg latency</div><div class="value" id="kpi-lat">—</div></div>
+      <div class="kpi note"><div class="label">Tokens / req</div><div class="value" id="kpi-tok">—</div></div>
+      <div class="kpi note"><div class="label">Fail rate</div><div class="value" id="kpi-fr">—</div></div>
+    </section>
+
+    <div class="section-title">
+      <h2>Notes · temporal</h2>
+      <span class="sub">traffic, latency &amp; reliability by <code>notes</code></span>
+    </div>
+    <div class="note-cards" id="note-cards"></div>
+
+    <section class="charts wide">
+      <div class="panel note-glow span-2">
+        <h2>Hourly requests by notes</h2>
+        <div class="chart-wrap tall"><canvas id="chart-hourly-notes"></canvas></div>
+      </div>
+      <div class="panel note-glow">
+        <h2>Daily requests by notes</h2>
+        <div class="chart-wrap"><canvas id="chart-daily-notes"></canvas></div>
+      </div>
+      <div class="panel note-glow">
+        <h2>Notes usage share</h2>
+        <div class="chart-wrap"><canvas id="chart-notes-usage"></canvas></div>
+      </div>
+      <div class="panel note-glow">
+        <h2>Efficiency · avg latency by notes (daily)</h2>
+        <div class="chart-wrap"><canvas id="chart-notes-latency"></canvas></div>
+      </div>
+      <div class="panel note-glow">
+        <h2>Efficiency · success rate by notes (daily)</h2>
+        <div class="chart-wrap"><canvas id="chart-notes-success"></canvas></div>
+      </div>
+    </section>
+
+    <div class="section-title">
+      <h2>Reliability</h2>
+      <span class="sub">failures per model per day (respects notes filter)</span>
+    </div>
+    <section class="charts wide">
+      <div class="panel span-2">
+        <h2>Failures per model per day</h2>
+        <div class="chart-wrap tall"><canvas id="chart-fail-model-day"></canvas></div>
+      </div>
       <div class="panel">
         <h2>Hourly requests by model</h2>
         <div class="chart-wrap"><canvas id="chart-hourly-model"></canvas></div>
@@ -273,33 +293,16 @@
         <h2>Model performance (avg latency)</h2>
         <div class="chart-wrap"><canvas id="chart-perf"></canvas></div>
       </div>
-      <div class="panel">
-        <h2>Hourly requests by service</h2>
-        <div class="chart-wrap"><canvas id="chart-hourly-notes"></canvas></div>
-      </div>
-      <div class="panel">
-        <h2>Daily requests by service</h2>
-        <div class="chart-wrap"><canvas id="chart-daily-notes"></canvas></div>
-      </div>
-      <div class="panel">
-        <h2>Service usage share</h2>
-        <div class="chart-wrap"><canvas id="chart-notes-usage"></canvas></div>
-      </div>
     </section>
+
     <section class="panel">
-      <h2>All-time by model</h2>
+      <h2>Range totals by model</h2>
       <div style="overflow-x:auto">
         <table>
           <thead>
             <tr>
-              <th>Model</th>
-              <th>Provider</th>
-              <th>Requests</th>
-              <th>Failures</th>
-              <th>Success</th>
-              <th>Avg ms</th>
-              <th>Max ms</th>
-              <th>Tokens</th>
+              <th>Model</th><th>Provider</th><th>Requests</th><th>Failures</th>
+              <th>Success</th><th>Avg ms</th><th>Max ms</th><th>Tokens</th>
             </tr>
           </thead>
           <tbody id="model-rows"></tbody>
@@ -312,32 +315,22 @@
         <table>
           <thead>
             <tr>
-              <th>Provider</th>
-              <th>Requests</th>
-              <th>Failures</th>
-              <th>Success</th>
-              <th>Avg ms</th>
-              <th>Max ms</th>
-              <th>Tokens</th>
+              <th>Provider</th><th>Requests</th><th>Failures</th><th>Success</th>
+              <th>Avg ms</th><th>Max ms</th><th>Tokens</th>
             </tr>
           </thead>
           <tbody id="provider-rows"></tbody>
         </table>
       </div>
     </section>
-    <section class="panel">
-      <h2>All-time by service</h2>
+    <section class="panel note-glow">
+      <h2>All-time by notes</h2>
       <div style="overflow-x:auto">
         <table>
           <thead>
             <tr>
-              <th>Service</th>
-              <th>Requests</th>
-              <th>Failures</th>
-              <th>Success</th>
-              <th>Avg ms</th>
-              <th>Max ms</th>
-              <th>Tokens</th>
+              <th>Notes</th><th>Requests</th><th>Failures</th><th>Success</th>
+              <th>Avg ms</th><th>Max ms</th><th>Tokens</th>
             </tr>
           </thead>
           <tbody id="notes-rows"></tbody>
@@ -348,36 +341,46 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const PALETTE = [
-      "#3a6ea5", "#3dba7a", "#d4a017", "#e05a5a", "#8b7ec8",
-      "#2aabb8", "#c47a5a", "#6b9bd1", "#9acd7a", "#c9a227",
+      "#2aabb8", "#3a6ea5", "#3dba7a", "#d4a017", "#e05a5a",
+      "#8b7ec8", "#c47a5a", "#6b9bd1", "#9acd7a", "#c9a227",
     ];
     let range = "7d";
     const charts = {};
     const serviceVisible = {};
     let lastStats = null;
 
-    function pct(v) {
-      return `${(v * 100).toFixed(1)}%`;
+    function pct(v) { return `${(Number(v || 0) * 100).toFixed(1)}%`; }
+    function fmtNum(n) { return Number(n || 0).toLocaleString(); }
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
-
-    function fmtNum(n) {
-      return Number(n || 0).toLocaleString();
+    function color(i, alpha) {
+      const c = PALETTE[i % PALETTE.length];
+      return alpha == null ? c : c + alpha;
     }
-
     function destroyChart(key) {
-      if (charts[key]) {
-        charts[key].destroy();
-        delete charts[key];
-      }
+      if (charts[key]) { charts[key].destroy(); delete charts[key]; }
     }
-
     function chartDefaults() {
       Chart.defaults.color = "#8b97a8";
       Chart.defaults.borderColor = "#2a3544";
       Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
     }
+    function selectedNotes() {
+      return collectServiceNames(lastStats || {}).filter((n) => serviceVisible[n] !== false);
+    }
+    function noteSelected(name) { return serviceVisible[name] !== false; }
 
-    function stackedLine(ctx, labels, datasets, { serviceLegend = false } = {}) {
+    function bucketLabel(iso, dateOnly) {
+      const d = new Date(iso);
+      return dateOnly
+        ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+        : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" });
+    }
+
+    function lineChart(ctx, labels, datasets, opts = {}) {
       return new Chart(ctx, {
         type: "line",
         data: { labels, datasets },
@@ -389,32 +392,61 @@
             legend: {
               position: "bottom",
               labels: { boxWidth: 10, font: { size: 11 } },
-              onClick: serviceLegend
-                ? (_e, legendItem) => {
-                    const name = legendItem.text;
-                    serviceVisible[name] = serviceVisible[name] === false;
+              onClick: opts.legendToggle
+                ? (_e, item) => {
+                    serviceVisible[item.text] = serviceVisible[item.text] === false;
                     syncServiceToggles();
-                    renderServiceCharts(lastStats);
+                    renderAll();
                   }
                 : undefined,
             },
           },
           scales: {
-            x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
-            y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+            x: {
+              stacked: !!opts.stacked,
+              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+            },
+            y: {
+              stacked: !!opts.stacked,
+              beginAtZero: true,
+              max: opts.yMax,
+              ticks: {
+                precision: opts.precision == null ? 0 : opts.precision,
+                callback: opts.yCallback,
+              },
+            },
           },
         },
       });
     }
 
-    function doughnut(ctx, labels, values, { serviceLegend = false } = {}) {
+    function barChart(ctx, labels, datasets, opts = {}) {
+      return new Chart(ctx, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } },
+          },
+          scales: {
+            x: { stacked: !!opts.stacked, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 14 } },
+            y: { stacked: !!opts.stacked, beginAtZero: true, ticks: { precision: 0 } },
+          },
+        },
+      });
+    }
+
+    function doughnut(ctx, labels, values) {
       return new Chart(ctx, {
         type: "doughnut",
         data: {
           labels,
           datasets: [{
             data: values,
-            backgroundColor: labels.map((_, i) => PALETTE[i % PALETTE.length]),
+            backgroundColor: labels.map((_, i) => color(i)),
             borderWidth: 0,
           }],
         },
@@ -425,84 +457,50 @@
             legend: {
               position: "bottom",
               labels: { boxWidth: 10, font: { size: 11 } },
-              onClick: serviceLegend
-                ? (_e, legendItem) => {
-                    const name = legendItem.text;
-                    serviceVisible[name] = serviceVisible[name] === false;
-                    syncServiceToggles();
-                    renderServiceCharts(lastStats);
-                  }
-                : undefined,
+              onClick: (_e, item) => {
+                serviceVisible[item.text] = serviceVisible[item.text] === false;
+                syncServiceToggles();
+                renderAll();
+              },
             },
           },
         },
       });
     }
 
-    function barCompare(ctx, labels, values, label) {
+    function sparkline(ctx, values, stroke) {
       return new Chart(ctx, {
-        type: "bar",
+        type: "line",
         data: {
-          labels,
+          labels: values.map((_, i) => i),
           datasets: [{
-            label,
             data: values,
-            backgroundColor: labels.map((_, i) => PALETTE[i % PALETTE.length] + "cc"),
-            borderColor: labels.map((_, i) => PALETTE[i % PALETTE.length]),
-            borderWidth: 1,
+            borderColor: stroke,
+            backgroundColor: stroke + "33",
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            borderWidth: 1.5,
           }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } },
-            y: { beginAtZero: true },
-          },
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
         },
       });
     }
 
-    function seriesDatasets(series, key, { dateOnly = false } = {}) {
-      const labels = series.map((s) => {
-        const d = new Date(s.bucket);
-        return dateOnly
-          ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-          : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit" });
-      });
-      const names = new Set();
-      for (const s of series) {
-        Object.keys(s[key] || {}).forEach((n) => names.add(n));
-      }
-      const ordered = [...names].sort();
-      const datasets = ordered
-        .filter((name) => key !== "by_notes" || serviceVisible[name] !== false)
-        .map((name) => {
-          const i = ordered.indexOf(name);
-          return {
-            label: name,
-            data: series.map((s) => (s[key][name] && s[key][name].requests) || 0),
-            borderColor: PALETTE[i % PALETTE.length],
-            backgroundColor: PALETTE[i % PALETTE.length] + "55",
-            fill: true,
-            tension: 0.25,
-            pointRadius: 0,
-            borderWidth: 1.5,
-          };
-        });
-      return { labels, datasets, names: ordered };
-    }
-
     function collectServiceNames(data) {
       const names = new Set();
-      for (const s of (data && data.series && data.series.hourly) || []) {
+      for (const s of (data.series && data.series.hourly) || []) {
         Object.keys(s.by_notes || {}).forEach((n) => names.add(n));
       }
-      for (const s of (data && data.series && data.series.daily) || []) {
+      for (const s of (data.series && data.series.daily) || []) {
         Object.keys(s.by_notes || {}).forEach((n) => names.add(n));
       }
-      for (const n of (data && data.totals && data.totals.notes) || []) names.add(n.name);
+      for (const n of (data.totals && data.totals.notes) || []) names.add(n.name);
       return [...names].sort();
     }
 
@@ -517,7 +515,7 @@
       }
       wrap.hidden = false;
       host.innerHTML = names.map((name) => {
-        const on = serviceVisible[name] !== false;
+        const on = noteSelected(name);
         return `<label class="svc-chip ${on ? "on" : ""}">
           <input type="checkbox" data-svc="${escapeHtml(name)}" ${on ? "checked" : ""} />
           ${escapeHtml(name)}
@@ -526,16 +524,271 @@
       host.querySelectorAll("input[data-svc]").forEach((input) => {
         input.addEventListener("change", () => {
           serviceVisible[input.getAttribute("data-svc")] = input.checked;
-          renderServiceCharts(lastStats);
           syncServiceToggles();
+          renderAll();
         });
       });
     }
 
+    /** Aggregate model metrics from by_note_model for selected notes. */
+    function modelsFromNoteFilter(series) {
+      const byModel = {};
+      for (const s of series) {
+        const nm = s.by_note_model || {};
+        for (const note of Object.keys(nm)) {
+          if (!noteSelected(note)) continue;
+          for (const [model, m] of Object.entries(nm[note] || {})) {
+            const prev = byModel[model] || {
+              provider: m.provider || "",
+              requests: 0, failures: 0, latency_sum_ms: 0, tokens_sum: 0, max_latency_ms: 0,
+            };
+            prev.provider = m.provider || prev.provider;
+            prev.requests += m.requests || 0;
+            prev.failures += m.failures || 0;
+            prev.latency_sum_ms += (m.avg_latency_ms || 0) * (m.requests || 0);
+            prev.tokens_sum += m.tokens_sum || 0;
+            prev.max_latency_ms = Math.max(prev.max_latency_ms, m.max_latency_ms || 0);
+            byModel[model] = prev;
+          }
+        }
+      }
+      return Object.entries(byModel).map(([name, m]) => ({
+        name,
+        provider: m.provider,
+        requests: m.requests,
+        failures: m.failures,
+        success_rate: m.requests ? (m.requests - m.failures) / m.requests : 0,
+        avg_latency_ms: m.requests ? m.latency_sum_ms / m.requests : 0,
+        max_latency_ms: m.max_latency_ms,
+        tokens_sum: m.tokens_sum,
+      })).sort((a, b) => b.requests - a.requests);
+    }
+
+    function hasNoteModelData(data) {
+      for (const s of (data.series && data.series.daily) || []) {
+        if (s.by_note_model && Object.keys(s.by_note_model).length) return true;
+      }
+      for (const s of (data.series && data.series.hourly) || []) {
+        if (s.by_note_model && Object.keys(s.by_note_model).length) return true;
+      }
+      return false;
+    }
+
+    function notesSeriesMetric(series, metric, { dateOnly = false } = {}) {
+      const labels = series.map((s) => bucketLabel(s.bucket, dateOnly));
+      const names = [...new Set(series.flatMap((s) => Object.keys(s.by_notes || {})))]
+        .filter(noteSelected)
+        .sort();
+      const datasets = names.map((name, i) => ({
+        label: name,
+        data: series.map((s) => {
+          const row = (s.by_notes || {})[name];
+          if (!row) return 0;
+          if (metric === "requests") return row.requests || 0;
+          if (metric === "failures") return row.failures || 0;
+          if (metric === "avg_latency_ms") return row.avg_latency_ms || 0;
+          if (metric === "success_rate") return (row.success_rate || 0) * 100;
+          return 0;
+        }),
+        borderColor: color(i),
+        backgroundColor: color(i, metric === "requests" ? "55" : "00"),
+        fill: metric === "requests",
+        tension: 0.3,
+        pointRadius: metric === "requests" ? 0 : 2,
+        borderWidth: 1.75,
+      }));
+      return { labels, datasets, names };
+    }
+
+    function failuresPerModelPerDay(data) {
+      const series = data.series.daily || [];
+      const labels = series.map((s) => bucketLabel(s.bucket, true));
+      const useCross = hasNoteModelData(data);
+      const modelSet = new Set();
+      const perBucket = series.map((s) => {
+        const map = {};
+        if (useCross) {
+          for (const [note, models] of Object.entries(s.by_note_model || {})) {
+            if (!noteSelected(note)) continue;
+            for (const [model, m] of Object.entries(models || {})) {
+              map[model] = (map[model] || 0) + (m.failures || 0);
+              modelSet.add(model);
+            }
+          }
+        } else {
+          for (const [model, m] of Object.entries(s.by_model || {})) {
+            map[model] = m.failures || 0;
+            modelSet.add(model);
+          }
+        }
+        return map;
+      });
+      const models = [...modelSet].sort();
+      const datasets = models.map((model, i) => ({
+        label: model,
+        data: perBucket.map((b) => b[model] || 0),
+        backgroundColor: color(i, "cc"),
+        borderColor: color(i),
+        borderWidth: 1,
+      }));
+      return { labels, datasets };
+    }
+
+    function modelRequestSeries(data, grain) {
+      const series = (data.series && data.series[grain]) || [];
+      const dateOnly = grain === "daily";
+      const labels = series.map((s) => bucketLabel(s.bucket, dateOnly));
+      const useCross = hasNoteModelData(data);
+      const modelSet = new Set();
+      const perBucket = series.map((s) => {
+        const map = {};
+        if (useCross) {
+          for (const [note, models] of Object.entries(s.by_note_model || {})) {
+            if (!noteSelected(note)) continue;
+            for (const [model, m] of Object.entries(models || {})) {
+              map[model] = (map[model] || 0) + (m.requests || 0);
+              modelSet.add(model);
+            }
+          }
+        } else {
+          for (const [model, m] of Object.entries(s.by_model || {})) {
+            map[model] = m.requests || 0;
+            modelSet.add(model);
+          }
+        }
+        return map;
+      });
+      const models = [...modelSet].sort();
+      return {
+        labels,
+        datasets: models.map((model, i) => ({
+          label: model,
+          data: perBucket.map((b) => b[model] || 0),
+          borderColor: color(i),
+          backgroundColor: color(i, "55"),
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        })),
+      };
+    }
+
+    function providerSeries(data) {
+      const series = data.series.daily || [];
+      const labels = series.map((s) => bucketLabel(s.bucket, true));
+      const useCross = hasNoteModelData(data);
+      const names = new Set();
+      const perBucket = series.map((s) => {
+        const map = {};
+        if (useCross) {
+          for (const [note, models] of Object.entries(s.by_note_model || {})) {
+            if (!noteSelected(note)) continue;
+            for (const m of Object.values(models || {})) {
+              const p = m.provider || "unknown";
+              map[p] = (map[p] || 0) + (m.requests || 0);
+              names.add(p);
+            }
+          }
+        } else {
+          for (const [p, m] of Object.entries(s.by_provider || {})) {
+            map[p] = m.requests || 0;
+            names.add(p);
+          }
+        }
+        return map;
+      });
+      const ordered = [...names].sort();
+      return {
+        labels,
+        datasets: ordered.map((name, i) => ({
+          label: name,
+          data: perBucket.map((b) => b[name] || 0),
+          borderColor: color(i),
+          backgroundColor: color(i, "55"),
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        })),
+      };
+    }
+
+    function rangeNoteTotals(data) {
+      const series = (range === "24h" ? data.series.hourly : data.series.daily) || [];
+      const map = {};
+      for (const s of series) {
+        for (const [note, m] of Object.entries(s.by_notes || {})) {
+          if (!noteSelected(note)) continue;
+          const prev = map[note] || {
+            name: note, requests: 0, failures: 0, latency_sum_ms: 0, tokens_sum: 0, max_latency_ms: 0,
+          };
+          prev.requests += m.requests || 0;
+          prev.failures += m.failures || 0;
+          prev.latency_sum_ms += (m.avg_latency_ms || 0) * (m.requests || 0);
+          prev.tokens_sum += m.tokens_sum || 0;
+          prev.max_latency_ms = Math.max(prev.max_latency_ms, m.max_latency_ms || 0);
+          map[note] = prev;
+        }
+      }
+      return Object.values(map).map((m) => ({
+        ...m,
+        success_rate: m.requests ? (m.requests - m.failures) / m.requests : 0,
+        avg_latency_ms: m.requests ? m.latency_sum_ms / m.requests : 0,
+      })).sort((a, b) => b.requests - a.requests);
+    }
+
+    function renderKpis(data) {
+      const notes = rangeNoteTotals(data);
+      const req = notes.reduce((a, n) => a + n.requests, 0);
+      const fail = notes.reduce((a, n) => a + n.failures, 0);
+      const latSum = notes.reduce((a, n) => a + n.avg_latency_ms * n.requests, 0);
+      const tok = notes.reduce((a, n) => a + n.tokens_sum, 0);
+      $("kpi-req").textContent = fmtNum(req);
+      $("kpi-fail").textContent = fmtNum(fail);
+      $("kpi-ok").textContent = req ? pct((req - fail) / req) : "—";
+      $("kpi-lat").textContent = req ? `${(latSum / req).toFixed(0)} ms` : "—";
+      $("kpi-tok").textContent = req ? (tok / req).toFixed(1) : "—";
+      $("kpi-fr").textContent = req ? pct(fail / req) : "—";
+    }
+
+    function renderNoteCards(data) {
+      const host = $("note-cards");
+      const notes = rangeNoteTotals(data);
+      const hourly = data.series.hourly || [];
+      // clear old sparklines
+      Object.keys(charts).filter((k) => k.startsWith("spark:")).forEach(destroyChart);
+      if (!notes.length) {
+        host.innerHTML = `<div class="empty-hint">No notes traffic in this range. Pass <code>notes</code> on /v1/complete.</div>`;
+        return;
+      }
+      host.innerHTML = notes.map((n, i) => `
+        <div class="note-card">
+          <div class="nc-name" style="color:${color(i)}">${escapeHtml(n.name)}</div>
+          <div class="nc-metrics">
+            <div><strong>${fmtNum(n.requests)}</strong>requests</div>
+            <div><strong>${pct(n.success_rate)}</strong>success</div>
+            <div><strong>${n.avg_latency_ms.toFixed(0)} ms</strong>avg latency</div>
+            <div><strong>${fmtNum(n.failures)}</strong>failures</div>
+          </div>
+          <div class="nc-spark"><canvas id="spark-${i}"></canvas></div>
+        </div>
+      `).join("");
+      notes.forEach((n, i) => {
+        const values = hourly.map((s) => ((s.by_notes || {})[n.name] || {}).requests || 0);
+        const canvas = document.getElementById(`spark-${i}`);
+        if (canvas) charts[`spark:${i}`] = sparkline(canvas, values, color(i));
+      });
+    }
+
     function renderTables(data) {
-      const models = data.totals.models || [];
+      const useCross = hasNoteModelData(data);
+      const models = useCross
+        ? modelsFromNoteFilter((range === "24h" ? data.series.hourly : data.series.daily) || [])
+        : (data.totals.models || []);
       const providers = data.totals.providers || [];
-      const notes = data.totals.notes || [];
+      const notes = (data.totals.notes || []).filter((n) => noteSelected(n.name));
+
       $("model-rows").innerHTML = models.length
         ? models.map((m) => `
           <tr>
@@ -544,11 +797,12 @@
             <td class="num">${fmtNum(m.requests)}</td>
             <td class="num">${fmtNum(m.failures)}</td>
             <td class="num">${pct(m.success_rate)}</td>
-            <td class="num">${m.avg_latency_ms.toFixed(0)}</td>
-            <td class="num">${m.max_latency_ms.toFixed(0)}</td>
+            <td class="num">${Number(m.avg_latency_ms).toFixed(0)}</td>
+            <td class="num">${Number(m.max_latency_ms).toFixed(0)}</td>
             <td class="num">${fmtNum(m.tokens_sum)}</td>
           </tr>`).join("")
-        : `<tr><td colspan="8" class="provider">no data yet</td></tr>`;
+        : `<tr><td colspan="8" class="provider">no data yet${useCross ? "" : " (model×notes filter needs new traffic)"}</td></tr>`;
+
       $("provider-rows").innerHTML = providers.length
         ? providers.map((p) => `
           <tr>
@@ -561,6 +815,7 @@
             <td class="num">${fmtNum(p.tokens_sum)}</td>
           </tr>`).join("")
         : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
+
       $("notes-rows").innerHTML = notes.length
         ? notes.map((n) => `
           <tr>
@@ -575,77 +830,99 @@
         : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
     }
 
-    function renderKpis(data) {
-      const models = data.totals.models || [];
-      const req = models.reduce((a, m) => a + m.requests, 0);
-      const fail = models.reduce((a, m) => a + m.failures, 0);
-      const latSum = models.reduce((a, m) => a + m.avg_latency_ms * m.requests, 0);
-      $("kpi-req").textContent = fmtNum(req);
-      $("kpi-fail").textContent = fmtNum(fail);
-      $("kpi-ok").textContent = req ? pct((req - fail) / req) : "—";
-      $("kpi-lat").textContent = req ? `${(latSum / req).toFixed(0)} ms` : "—";
-    }
-
-    function renderServiceCharts(data) {
-      if (!data) return;
-      const hourlyNotes = seriesDatasets(data.series.hourly || [], "by_notes");
+    function renderCharts(data) {
+      chartDefaults();
+      const hourlyNotes = notesSeriesMetric(data.series.hourly || [], "requests");
       destroyChart("hourlyNotes");
-      charts.hourlyNotes = stackedLine(
-        $("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets, { serviceLegend: true },
+      charts.hourlyNotes = lineChart(
+        $("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets,
+        { stacked: true, legendToggle: true },
       );
 
-      const dailyNotes = seriesDatasets(data.series.daily || [], "by_notes", { dateOnly: true });
+      const dailyNotes = notesSeriesMetric(data.series.daily || [], "requests", { dateOnly: true });
       destroyChart("dailyNotes");
-      charts.dailyNotes = stackedLine(
-        $("chart-daily-notes"), dailyNotes.labels, dailyNotes.datasets, { serviceLegend: true },
+      charts.dailyNotes = lineChart(
+        $("chart-daily-notes"), dailyNotes.labels, dailyNotes.datasets,
+        { stacked: true, legendToggle: true },
       );
 
-      const notesPerf = (data.performance.notes || data.totals.notes || [])
-        .filter((n) => serviceVisible[n.name] !== false);
+      const notesPerf = rangeNoteTotals(data);
       destroyChart("notesUsage");
       charts.notesUsage = doughnut(
         $("chart-notes-usage"),
         notesPerf.map((n) => n.name),
         notesPerf.map((n) => n.requests),
-        { serviceLegend: true },
       );
-    }
 
-    function renderCharts(data) {
-      chartDefaults();
-      const hourly = seriesDatasets(data.series.hourly || [], "by_model");
+      const lat = notesSeriesMetric(data.series.daily || [], "avg_latency_ms", { dateOnly: true });
+      destroyChart("notesLatency");
+      charts.notesLatency = lineChart(
+        $("chart-notes-latency"), lat.labels, lat.datasets,
+        { stacked: false, legendToggle: true, precision: 0, yCallback: (v) => `${v}` },
+      );
+
+      const ok = notesSeriesMetric(data.series.daily || [], "success_rate", { dateOnly: true });
+      destroyChart("notesSuccess");
+      charts.notesSuccess = lineChart(
+        $("chart-notes-success"), ok.labels, ok.datasets,
+        { stacked: false, legendToggle: true, yMax: 100, precision: 0, yCallback: (v) => `${v}%` },
+      );
+
+      const fails = failuresPerModelPerDay(data);
+      destroyChart("failModelDay");
+      charts.failModelDay = barChart(
+        $("chart-fail-model-day"), fails.labels, fails.datasets, { stacked: true },
+      );
+
+      const hourly = modelRequestSeries(data, "hourly");
       destroyChart("hourly");
-      charts.hourly = stackedLine($("chart-hourly-model"), hourly.labels, hourly.datasets);
+      charts.hourly = lineChart($("chart-hourly-model"), hourly.labels, hourly.datasets, { stacked: true });
 
-      const daily = seriesDatasets(data.series.daily || [], "by_provider", { dateOnly: true });
+      const daily = providerSeries(data);
       destroyChart("daily");
-      charts.daily = stackedLine($("chart-daily-provider"), daily.labels, daily.datasets);
+      charts.daily = lineChart($("chart-daily-provider"), daily.labels, daily.datasets, { stacked: true });
 
-      const perf = data.performance.models || [];
+      const models = hasNoteModelData(data)
+        ? modelsFromNoteFilter(data.series.daily || [])
+        : (data.performance.models || []);
       destroyChart("usage");
-      charts.usage = doughnut(
-        $("chart-usage"),
-        perf.map((m) => m.name),
-        perf.map((m) => m.requests),
-      );
+      charts.usage = new Chart($("chart-usage"), {
+        type: "doughnut",
+        data: {
+          labels: models.map((m) => m.name),
+          datasets: [{
+            data: models.map((m) => m.requests),
+            backgroundColor: models.map((_, i) => color(i)),
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } },
+        },
+      });
 
       destroyChart("perf");
-      charts.perf = barCompare(
+      charts.perf = barChart(
         $("chart-perf"),
-        perf.map((m) => m.name),
-        perf.map((m) => m.avg_latency_ms),
-        "avg latency ms",
+        models.map((m) => m.name),
+        [{
+          label: "avg latency ms",
+          data: models.map((m) => m.avg_latency_ms),
+          backgroundColor: models.map((_, i) => color(i, "cc")),
+          borderColor: models.map((_, i) => color(i)),
+          borderWidth: 1,
+        }],
+        { stacked: false },
       );
-
-      renderServiceCharts(data);
     }
 
-    function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+    function renderAll() {
+      if (!lastStats) return;
+      renderKpis(lastStats);
+      renderNoteCards(lastStats);
+      renderTables(lastStats);
+      if (typeof Chart !== "undefined") renderCharts(lastStats);
     }
 
     async function load() {
@@ -658,16 +935,13 @@
       }
       $("mongo-banner").hidden = !!data.configured;
       if (!data.configured) {
-        const detail = data.detail || "Set MONGODB_URI to enable historical stats";
-        $("mongo-banner").innerHTML = escapeHtml(detail);
+        $("mongo-banner").innerHTML = escapeHtml(data.detail || "Set MONGODB_URI to enable historical stats");
       }
       $("meta").textContent = data.configured
         ? `range ${data.range} · mongo ok · ${new Date().toLocaleTimeString()}`
         : `range ${data.range} · mongo off · ${new Date().toLocaleTimeString()}`;
-      renderKpis(data);
-      renderTables(data);
-      if (typeof Chart !== "undefined") renderCharts(data);
       syncServiceToggles();
+      renderAll();
     }
 
     $("range").addEventListener("click", (ev) => {
@@ -683,12 +957,12 @@
     $("svc-all").addEventListener("click", () => {
       for (const name of collectServiceNames(lastStats || {})) serviceVisible[name] = true;
       syncServiceToggles();
-      renderServiceCharts(lastStats);
+      renderAll();
     });
     $("svc-none").addEventListener("click", () => {
       for (const name of collectServiceNames(lastStats || {})) serviceVisible[name] = false;
       syncServiceToggles();
-      renderServiceCharts(lastStats);
+      renderAll();
     });
 
     function boot() {
@@ -697,9 +971,8 @@
     }
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", () => {
-        if (typeof Chart === "undefined") {
-          window.addEventListener("load", boot);
-        } else boot();
+        if (typeof Chart === "undefined") window.addEventListener("load", boot);
+        else boot();
       });
     } else {
       window.addEventListener("load", boot);

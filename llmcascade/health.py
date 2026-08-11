@@ -124,6 +124,7 @@ class HealthCache:
             events.record(
                 f"health {status.state}",
                 level="error" if status.state in ("down", "auth_error") else "info",
+                type="health",
                 model=model.name,
                 provider=model.provider,
                 health=status.state,

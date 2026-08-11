@@ -31,6 +31,24 @@ def notes_key(notes: str | None) -> str:
     return n if n else "(none)"
 
 
+_NOTE_MODEL_SEP = '\x1f'
+
+
+def note_model_key(note: str, model: str) -> str:
+    """Compound bucket id for note × model (unique under grain+bucket+model)."""
+    return f"__nm__:{note}{_NOTE_MODEL_SEP}{model}"
+
+
+def parse_note_model_key(key: str) -> tuple[str, str] | None:
+    if not key.startswith("__nm__:"):
+        return None
+    rest = key[len("__nm__:"):]
+    if _NOTE_MODEL_SEP not in rest:
+        return None
+    note, model = rest.split(_NOTE_MODEL_SEP, 1)
+    return note, model
+
+
 def _parse_range(range_key: str) -> tuple[timedelta, timedelta]:
     """Return (hourly_lookback, daily_lookback)."""
     key = (range_key or "7d").strip().lower()
@@ -171,6 +189,21 @@ class StatsStore:
                     },
                     upsert=True,
                 )
+                # Cross-dim so UI can filter model metrics by notes.
+                await self._buckets.update_one(
+                    {"grain": grain, "bucket": bucket, "model": note_model_key(note, model)},
+                    {
+                        "$inc": dict(inc),
+                        "$max": {"latency_max_ms": max_lat},
+                        "$set": {
+                            "kind": "note_model",
+                            "notes": note,
+                            "base_model": model,
+                            "provider": provider,
+                        },
+                    },
+                    upsert=True,
+                )
             await self._totals.update_one(
                 {"scope": "model", "name": model},
                 {
@@ -207,6 +240,7 @@ class StatsStore:
                 events.record(
                     f"stats persist failed: {exc}",
                     level="error",
+                    type="system",
                     model=model,
                     provider=provider,
                 )
@@ -322,6 +356,7 @@ class StatsStore:
                     "by_model": {},
                     "by_provider": {},
                     "by_notes": {},
+                    "by_note_model": {},
                     "requests": 0,
                     "failures": 0,
                 },
@@ -347,6 +382,38 @@ class StatsStore:
                     prev_n["max_latency_ms"] = max(
                         prev_n["max_latency_ms"], metrics["max_latency_ms"]
                     )
+                continue
+
+            if doc.get("kind") == "note_model" or model.startswith("__nm__:"):
+                note = doc.get("notes")
+                base = doc.get("base_model")
+                if not note or not base:
+                    parsed = parse_note_model_key(model)
+                    if parsed:
+                        note, base = parsed
+                note = note or "(none)"
+                base = base or "unknown"
+                note_map = entry["by_note_model"].setdefault(note, {})
+                prev_nm = note_map.get(base)
+                if prev_nm is None:
+                    note_map[base] = {
+                        "provider": doc.get("provider") or "unknown",
+                        "requests": metrics["requests"],
+                        "failures": metrics["failures"],
+                        "latency_sum_ms": float(doc.get("latency_sum_ms") or 0),
+                        "tokens_sum": metrics["tokens_sum"],
+                        "max_latency_ms": metrics["max_latency_ms"],
+                    }
+                else:
+                    prev_nm["requests"] += metrics["requests"]
+                    prev_nm["failures"] += metrics["failures"]
+                    prev_nm["latency_sum_ms"] += float(doc.get("latency_sum_ms") or 0)
+                    prev_nm["tokens_sum"] += metrics["tokens_sum"]
+                    prev_nm["max_latency_ms"] = max(
+                        prev_nm["max_latency_ms"], metrics["max_latency_ms"]
+                    )
+                    if doc.get("provider"):
+                        prev_nm["provider"] = doc.get("provider")
                 continue
 
             provider = doc.get("provider") or "unknown"
@@ -390,6 +457,23 @@ class StatsStore:
                         "tokens_sum": raw["tokens_sum"],
                     }
                 entry[dim] = finalized
+            nm_final: dict[str, Any] = {}
+            for note, models in entry["by_note_model"].items():
+                nm_final[note] = {}
+                for base, raw in models.items():
+                    req = raw["requests"]
+                    fail = raw["failures"]
+                    lat_sum = raw.pop("latency_sum_ms", 0.0)
+                    nm_final[note][base] = {
+                        "provider": raw.get("provider") or "unknown",
+                        "requests": req,
+                        "failures": fail,
+                        "success_rate": round(((req - fail) / req) if req else 0.0, 4),
+                        "avg_latency_ms": round((lat_sum / req) if req else 0.0, 2),
+                        "max_latency_ms": raw["max_latency_ms"],
+                        "tokens_sum": raw["tokens_sum"],
+                    }
+            entry["by_note_model"] = nm_final
             out.append(entry)
         return out
 

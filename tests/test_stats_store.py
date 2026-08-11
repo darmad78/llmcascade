@@ -73,3 +73,63 @@ async def test_null_stats_store():
     assert snap["totals"]["models"] == []
     assert snap["totals"]["notes"] == []
     assert snap["detail"] == "no uri"
+
+
+def test_note_model_key_roundtrip():
+    from llmcascade.stats_store import note_model_key, parse_note_model_key
+
+    key = note_model_key("billing|eu", "openai/gpt-4o")
+    assert parse_note_model_key(key) == ("billing|eu", "openai/gpt-4o")
+    assert parse_note_model_key("__note__:x") is None
+
+
+def test_pivot_series_note_model_cross_dim():
+    store = StatsStore.__new__(StatsStore)
+    docs = [
+        {
+            "grain": "day",
+            "bucket": datetime(2026, 8, 6, 0, 0, tzinfo=timezone.utc),
+            "model": "a",
+            "provider": "p1",
+            "requests": 3,
+            "failures": 1,
+            "latency_sum_ms": 300.0,
+            "latency_max_ms": 150.0,
+            "tokens_sum": 30,
+        },
+        {
+            "grain": "day",
+            "bucket": datetime(2026, 8, 6, 0, 0, tzinfo=timezone.utc),
+            "model": "__nm__:app\x1fa",
+            "kind": "note_model",
+            "notes": "app",
+            "base_model": "a",
+            "provider": "p1",
+            "requests": 3,
+            "failures": 1,
+            "latency_sum_ms": 300.0,
+            "latency_max_ms": 150.0,
+            "tokens_sum": 30,
+        },
+        {
+            "grain": "day",
+            "bucket": datetime(2026, 8, 6, 0, 0, tzinfo=timezone.utc),
+            "model": "__nm__:jobs\x1fa",
+            "kind": "note_model",
+            "notes": "jobs",
+            "base_model": "a",
+            "provider": "p1",
+            "requests": 2,
+            "failures": 0,
+            "latency_sum_ms": 100.0,
+            "latency_max_ms": 60.0,
+            "tokens_sum": 20,
+        },
+    ]
+    series = store._pivot_series(docs)
+    row = series[0]
+    assert row["by_model"]["a"]["requests"] == 3
+    assert "__nm__:app" not in str(row["by_model"])
+    assert row["by_note_model"]["app"]["a"]["failures"] == 1
+    assert row["by_note_model"]["jobs"]["a"]["requests"] == 2
+    assert row["by_note_model"]["jobs"]["a"]["avg_latency_ms"] == 50.0

@@ -6,12 +6,25 @@ from collections import deque
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+# Known event types surfaced as dashboard filter checkboxes.
+EVENT_TYPES = (
+    "health",
+    "request_ok",
+    "request_fail",
+    "cooldown",
+    "queue",
+    "admin",
+    "lifecycle",
+    "system",
+)
+
 
 @dataclass
 class Event:
     ts: float
     level: str
     message: str
+    type: str = "system"
     model: str | None = None
     provider: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)
@@ -33,6 +46,7 @@ class EventLog:
         message: str,
         *,
         level: str = "info",
+        type: str = "system",
         model: str | None = None,
         provider: str | None = None,
         **detail: Any,
@@ -41,6 +55,7 @@ class EventLog:
             ts=time.time(),
             level=level,
             message=message,
+            type=type or "system",
             model=model,
             provider=provider,
             detail=detail,
