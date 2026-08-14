@@ -417,6 +417,11 @@
   <script>
     const $ = (id) => document.getElementById(id);
 
+    function csrfToken() {
+      const row = document.cookie.split("; ").find((p) => p.startsWith("llmcascade_csrf="));
+      return row ? decodeURIComponent(row.slice("llmcascade_csrf=".length)) : "";
+    }
+
     function fmtTime(ts) {
       const d = new Date(ts * 1000);
       return d.toLocaleTimeString(undefined, { hour12: false }) +
@@ -688,10 +693,15 @@
       try {
         const res = await fetch("/v1/complete", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken(),
+          },
           body: JSON.stringify({
             prompt: buildPrompt(chatHistory),
             capability: "chat",
+            notes: "dashboard",
           }),
         });
         const data = await res.json().catch(() => ({}));

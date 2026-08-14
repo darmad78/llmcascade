@@ -273,6 +273,14 @@ def _require_csrf(request: Request, submitted: str | None) -> None:
         raise HTTPException(status_code=403, detail="invalid CSRF token")
 
 
+def _dashboard_session_ok(request: Request) -> bool:
+    session = validate_session(request.cookies.get(SESSION_COOKIE))
+    if session is None:
+        return False
+    _, claims = session
+    return not claims.must_change_password
+
+
 @app.post("/v1/complete", response_model=LLMResponse)
 async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
     global _api_limiter
@@ -289,14 +297,17 @@ async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
             request.headers.get("authorization"),
             request.headers.get("x-api-key"),
         )
-        if not validate_api_key(api_key):
+        if validate_api_key(api_key):
+            rpm = api_rpm_limit()
+            if rpm is not None and api_key is not None:
+                if _api_limiter is None or _api_limiter.rpm != rpm:
+                    _api_limiter = ApiKeyRateLimiter(rpm)
+                if not await _api_limiter.check_and_record(api_key):
+                    raise HTTPException(status_code=429, detail="API key rate limit exceeded")
+        elif _dashboard_session_ok(request):
+            _require_csrf(request, request.headers.get("x-csrf-token"))
+        else:
             raise HTTPException(status_code=401, detail="invalid or missing API key")
-        rpm = api_rpm_limit()
-        if rpm is not None and api_key is not None:
-            if _api_limiter is None or _api_limiter.rpm != rpm:
-                _api_limiter = ApiKeyRateLimiter(rpm)
-            if not await _api_limiter.check_and_record(api_key):
-                raise HTTPException(status_code=429, detail="API key rate limit exceeded")
 
     client = _require_client()
     try:

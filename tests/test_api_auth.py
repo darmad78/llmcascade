@@ -117,6 +117,49 @@ def test_bcrypt_entry_in_api_keys_env(monkeypatch: pytest.MonkeyPatch):
     assert not validate_api_key("nope")
 
 
+def test_dashboard_session_can_complete_with_csrf(
+    api_env, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("LLMCASCADE_API_KEYS", "good-key")
+
+    async def fake_submit(prompt, capability="chat", notes=None, **params):
+        from llmcascade.adapters.base import LLMResponse
+
+        return LLMResponse(text="ok", model="x", tokens_used=1, latency_ms=1.0)
+
+    import llmcascade.api as api_mod
+
+    with TestClient(api_mod.app) as client:
+        monkeypatch.setattr(api_mod._client, "submit", fake_submit)
+        login = client.post(
+            "/login",
+            data={"username": "admin", "password": "admin"},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303
+        csrf = client.cookies.get("llmcascade_csrf")
+        assert csrf
+        client.post(
+            "/admin/change-password",
+            data={
+                "new_password": "newpassword1",
+                "confirm_password": "newpassword1",
+                "csrf_token": csrf,
+            },
+            follow_redirects=False,
+        )
+        csrf = client.cookies.get("llmcascade_csrf")
+        denied = client.post("/v1/complete", json={"prompt": "hi"})
+        assert denied.status_code == 403
+        ok = client.post(
+            "/v1/complete",
+            json={"prompt": "hi"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert ok.status_code == 200
+
+
 def test_production_profile_forces_auth(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("REQUIRE_AUTH", raising=False)
     monkeypatch.setenv("LLMCASCADE_PROFILE", "production")
