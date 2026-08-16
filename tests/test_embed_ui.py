@@ -123,6 +123,7 @@ def test_embed_pages_after_login(client: TestClient):
     prov = client.get("/embed/providers")
     assert prov.status_code == 200
     assert "const CAPABILITY = \"embed\"" in prov.text
+    assert '($("m-priority") && $("m-priority").value)' in prov.text
 
     llm = client.get("/dashboard")
     assert llm.status_code == 200

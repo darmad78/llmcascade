@@ -384,34 +384,42 @@
     }
 
     $("m-save").addEventListener("click", async () => {
-      const body = {
-        name: $("m-name").value.trim(),
-        provider: $("m-provider").value,
-        endpoint: $("m-endpoint").value.trim(),
-        key_tier: $("m-tier").value,
-        weight: Number($("m-weight").value || 1),
-        priority: Number($("m-priority").value || 50),
-        capabilities: [$("m-capability").value || "chat"],
-        enabled: true,
-        csrf_token: CSRF_TOKEN,
-      };
-      if (!body.name || !body.endpoint) {
-        setMsg("Name and endpoint required", false);
-        return;
+      try {
+        const body = {
+          name: $("m-name").value.trim(),
+          provider: $("m-provider").value,
+          endpoint: $("m-endpoint").value.trim(),
+          key_tier: $("m-tier").value,
+          weight: Number($("m-weight").value || 1),
+          priority: Number(($("m-priority") && $("m-priority").value) || 50),
+          capabilities: [$("m-capability").value || "chat"],
+          enabled: true,
+          csrf_token: CSRF_TOKEN,
+        };
+        if (!body.name || !body.endpoint) {
+          setMsg("Name and endpoint required", false);
+          return;
+        }
+        setMsg("Saving & probing model…", true);
+        const res = await fetch("/admin/models", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const detail = data.detail;
+          setMsg(typeof detail === "string" ? detail : (detail && JSON.stringify(detail)) || "save failed", false);
+          return;
+        }
+        const t = data.test || {};
+        if (data.ok) {
+          setMsg(`Saved ${body.name}; probe ${t.state}. Active models: ${data.models}`, true);
+          $("m-name").value = "";
+          $("m-endpoint").value = "";
+        } else {
+          setMsg(data.detail || `Saved but probe failed: ${t.state} ${t.message || ""}`, false);
+        }
+        await load();
+      } catch (err) {
+        setMsg(err.message || String(err), false);
       }
-      setMsg("Saving & probing model…", true);
-      const res = await fetch("/admin/models", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(data.detail || "save failed", false); return; }
-      const t = data.test || {};
-      if (data.ok) {
-        setMsg(`Saved ${body.name}; probe ${t.state}. Active models: ${data.models}`, true);
-        $("m-name").value = "";
-        $("m-endpoint").value = "";
-      } else {
-        setMsg(data.detail || `Saved but probe failed: ${t.state} ${t.message || ""}`, false);
-      }
-      await load();
     });
 
     load().catch((e) => setMsg(String(e), false));
