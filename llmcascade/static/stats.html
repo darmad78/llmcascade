@@ -238,6 +238,14 @@
       <div class="kpi note"><div class="label">Tokens / req</div><div class="value" id="kpi-tok">—</div></div>
       <div class="kpi note"><div class="label">Fail rate</div><div class="value" id="kpi-fr">—</div></div>
     </section>
+    <section class="kpi-row" id="cap-kpis">
+      <div class="kpi"><div class="label">Chat requests</div><div class="value" id="kpi-chat">—</div></div>
+      <div class="kpi"><div class="label">Embed requests</div><div class="value" id="kpi-embed">—</div></div>
+      <div class="kpi ok"><div class="label">Chat success</div><div class="value" id="kpi-chat-ok">—</div></div>
+      <div class="kpi ok"><div class="label">Embed success</div><div class="value" id="kpi-embed-ok">—</div></div>
+      <div class="kpi"><div class="label">Chat avg latency</div><div class="value" id="kpi-chat-lat">—</div></div>
+      <div class="kpi"><div class="label">Embed avg latency</div><div class="value" id="kpi-embed-lat">—</div></div>
+    </section>
 
     <div class="section-title">
       <h2>Notes · temporal</h2>
@@ -265,6 +273,34 @@
       <div class="panel note-glow">
         <h2>Efficiency · success rate by notes (daily)</h2>
         <div class="chart-wrap"><canvas id="chart-notes-success"></canvas></div>
+      </div>
+    </section>
+
+    <div class="section-title">
+      <h2>Capability</h2>
+      <span class="sub">chat vs embed (vectors are not stored)</span>
+    </div>
+    <section class="charts wide">
+      <div class="panel span-2">
+        <h2>Hourly requests by capability</h2>
+        <div class="chart-wrap tall"><canvas id="chart-hourly-cap"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Capability totals</h2>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th class="num">Reqs</th>
+                <th class="num">Fails</th>
+                <th class="num">Success</th>
+                <th class="num">Avg ms</th>
+              </tr>
+            </thead>
+            <tbody id="cap-rows"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -750,6 +786,15 @@
       $("kpi-lat").textContent = req ? `${(latSum / req).toFixed(0)} ms` : "—";
       $("kpi-tok").textContent = req ? (tok / req).toFixed(1) : "—";
       $("kpi-fr").textContent = req ? pct(fail / req) : "—";
+      const caps = data.totals.capabilities || [];
+      const chat = caps.find((c) => c.name === "chat") || {};
+      const embed = caps.find((c) => c.name === "embed") || {};
+      $("kpi-chat").textContent = fmtNum(chat.requests || 0);
+      $("kpi-embed").textContent = fmtNum(embed.requests || 0);
+      $("kpi-chat-ok").textContent = chat.requests ? pct(chat.success_rate) : "—";
+      $("kpi-embed-ok").textContent = embed.requests ? pct(embed.success_rate) : "—";
+      $("kpi-chat-lat").textContent = chat.requests ? `${(chat.avg_latency_ms || 0).toFixed(0)} ms` : "—";
+      $("kpi-embed-lat").textContent = embed.requests ? `${(embed.avg_latency_ms || 0).toFixed(0)} ms` : "—";
     }
 
     function renderNoteCards(data) {
@@ -828,6 +873,21 @@
             <td class="num">${fmtNum(n.tokens_sum)}</td>
           </tr>`).join("")
         : `<tr><td colspan="7" class="provider">no data yet</td></tr>`;
+
+      const caps = data.totals.capabilities || [];
+      const capEl = $("cap-rows");
+      if (capEl) {
+        capEl.innerHTML = caps.length
+          ? caps.map((c) => `
+            <tr>
+              <td class="name">${escapeHtml(c.name)}</td>
+              <td class="num">${fmtNum(c.requests)}</td>
+              <td class="num">${fmtNum(c.failures)}</td>
+              <td class="num">${pct(c.success_rate)}</td>
+              <td class="num">${Number(c.avg_latency_ms).toFixed(0)}</td>
+            </tr>`).join("")
+          : `<tr><td colspan="5" class="provider">no data yet</td></tr>`;
+      }
     }
 
     function renderCharts(data) {
@@ -838,6 +898,27 @@
         $("chart-hourly-notes"), hourlyNotes.labels, hourlyNotes.datasets,
         { stacked: true, legendToggle: true },
       );
+
+      const hourly = data.series.hourly || [];
+      const capNames = [...new Set(hourly.flatMap((s) => Object.keys(s.by_capability || {})))].sort();
+      destroyChart("hourlyCap");
+      if ($("chart-hourly-cap")) {
+        charts.hourlyCap = lineChart(
+          $("chart-hourly-cap"),
+          hourly.map((s) => bucketLabel(s.bucket)),
+          capNames.map((name, i) => ({
+            label: name,
+            data: hourly.map((s) => ((s.by_capability || {})[name] || {}).requests || 0),
+            borderColor: color(i),
+            backgroundColor: color(i, "55"),
+            fill: true,
+            tension: 0.25,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          })),
+          { stacked: true, legendToggle: true },
+        );
+      }
 
       const dailyNotes = notesSeriesMetric(data.series.daily || [], "requests", { dateOnly: true });
       destroyChart("dailyNotes");

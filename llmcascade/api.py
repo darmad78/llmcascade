@@ -281,46 +281,59 @@ def _dashboard_session_ok(request: Request) -> bool:
     return not claims.must_change_password
 
 
-@app.post("/v1/complete", response_model=LLMResponse)
-async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
+async def _authorize_inference(request: Request) -> None:
     global _api_limiter
-    if require_auth_enabled():
-        if not auth_credentials_configured():
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "API auth required but no credentials configured "
-                    "(set LLMCASCADE_API_KEYS and/or LLMCASCADE_API_KEY_HASHES)"
-                ),
-            )
-        api_key = extract_api_key(
-            request.headers.get("authorization"),
-            request.headers.get("x-api-key"),
+    if not require_auth_enabled():
+        return
+    if not auth_credentials_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "API auth required but no credentials configured "
+                "(set LLMCASCADE_API_KEYS and/or LLMCASCADE_API_KEY_HASHES)"
+            ),
         )
-        if validate_api_key(api_key):
-            rpm = api_rpm_limit()
-            if rpm is not None and api_key is not None:
-                if _api_limiter is None or _api_limiter.rpm != rpm:
-                    _api_limiter = ApiKeyRateLimiter(rpm)
-                if not await _api_limiter.check_and_record(api_key):
-                    raise HTTPException(status_code=429, detail="API key rate limit exceeded")
-        elif _dashboard_session_ok(request):
-            _require_csrf(request, request.headers.get("x-csrf-token"))
-        else:
-            raise HTTPException(status_code=401, detail="invalid or missing API key")
+    api_key = extract_api_key(
+        request.headers.get("authorization"),
+        request.headers.get("x-api-key"),
+    )
+    if validate_api_key(api_key):
+        rpm = api_rpm_limit()
+        if rpm is not None and api_key is not None:
+            if _api_limiter is None or _api_limiter.rpm != rpm:
+                _api_limiter = ApiKeyRateLimiter(rpm)
+            if not await _api_limiter.check_and_record(api_key):
+                raise HTTPException(status_code=429, detail="API key rate limit exceeded")
+        return
+    if _dashboard_session_ok(request):
+        _require_csrf(request, request.headers.get("x-csrf-token"))
+        return
+    raise HTTPException(status_code=401, detail="invalid or missing API key")
 
+
+async def _submit_inference(prompt: str, capability: str, notes: str | None, params: dict[str, Any]) -> LLMResponse:
     client = _require_client()
     try:
-        return await client.submit(
-            body.prompt, body.capability, notes=body.notes, **body.params
-        )
+        return await client.submit(prompt, capability, notes=notes, **params)
     except Exception as exc:
-        detail: dict[str, Any] = {"capability": body.capability}
-        if body.notes and str(body.notes).strip():
-            detail["notes"] = str(body.notes).strip()
+        detail: dict[str, Any] = {"capability": capability}
+        if notes and str(notes).strip():
+            detail["notes"] = str(notes).strip()
         safe = safe_error_message(exc)
         events.record(safe, level="error", type="request_fail", **detail)
         raise HTTPException(status_code=502, detail=safe) from exc
+
+
+@app.post("/v1/complete", response_model=LLMResponse)
+async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
+    await _authorize_inference(request)
+    return await _submit_inference(body.prompt, body.capability, body.notes, body.params)
+
+
+@app.post("/v1/embed", response_model=LLMResponse)
+async def embed(request: Request, body: CompleteRequest) -> LLMResponse:
+    await _authorize_inference(request)
+    return await _submit_inference(body.prompt, "embed", body.notes, body.params)
 
 
 @app.get("/v1/status")

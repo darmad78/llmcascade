@@ -145,7 +145,12 @@
           <select id="m-tier"><option value="free">free</option><option value="paid">paid</option></select>
         </label>
         <label>Chance (weight)<input id="m-weight" type="number" min="1" value="1" /></label>
-        <label>Priority<input id="m-priority" type="number" value="50" /></label>
+        <label>Capability
+          <select id="m-capability">
+            <option value="chat">chat</option>
+            <option value="embed">embed</option>
+          </select>
+        </label>
       </div>
       <div class="actions">
         <button type="button" id="m-save">Save &amp; test</button>
@@ -287,7 +292,7 @@
               data-cascade-member="${m.is_cascade_member ? "1" : "0"}">
             <td>
               <strong>${m.name}</strong>
-              <div class="src">${m.provider}${m.custom ? " · custom" : ""}${cascadeNote}</div>
+              <div class="src">${m.provider}${(m.capabilities || []).length ? " · " + m.capabilities.join(",") : ""}${m.custom ? " · custom" : ""}${cascadeNote}</div>
             </td>
             <td>
               <select data-tier>
@@ -390,6 +395,7 @@
         key_tier: $("m-tier").value,
         weight: Number($("m-weight").value || 1),
         priority: Number($("m-priority").value || 50),
+        capabilities: [$("m-capability").value || "chat"],
         enabled: true,
         csrf_token: CSRF_TOKEN,
       };

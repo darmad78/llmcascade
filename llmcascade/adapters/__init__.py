@@ -11,6 +11,7 @@ from llmcascade.adapters.deepseek_adapter import DeepSeekAdapter
 from llmcascade.adapters.gemini_adapter import GeminiAdapter
 from llmcascade.adapters.groq_adapter import GroqAdapter
 from llmcascade.adapters.huggingface_adapter import HuggingFaceAdapter
+from llmcascade.adapters.jina_adapter import JinaAdapter
 from llmcascade.adapters.mistral_adapter import MistralAdapter
 from llmcascade.adapters.nvidia_adapter import NvidiaAdapter
 from llmcascade.adapters.openrouter_adapter import OpenRouterAdapter
@@ -33,6 +34,7 @@ _ADAPTERS: dict[str, type[BaseAdapter]] = {
     "cohere": CohereAdapter,
     "nvidia": NvidiaAdapter,
     "deepinfra": DeepInfraAdapter,
+    "jina": JinaAdapter,
 }
 
 

@@ -167,6 +167,7 @@
     </p>
     <nav class="toc" aria-label="Sections">
       <a href="#complete">/v1/complete</a>
+      <a href="#embed">/v1/embed</a>
       <a href="#admin">Admin / session</a>
       <a href="#csrf">CSRF</a>
       <a href="#startup">Startup / registry</a>
@@ -236,6 +237,20 @@
         </div>
         <p class="title">Success</p>
         <p class="what">text, model, tokens_used, latency_ms, raw.</p>
+      </div>
+    </section>
+
+    <section id="embed">
+      <h2>POST /v1/embed</h2>
+      <p class="lead">Embedding API. Same auth as <code>/v1/complete</code>. Body is <code>prompt</code> (the document). Vectors are returned in the response and are not stored.</p>
+      <div class="row">
+        <div class="meta">
+          <span class="pill http">502</span>
+          <span class="code">no free-tier model succeeded for capability='embed'</span>
+        </div>
+        <p class="title">All embed models failed</p>
+        <p class="what">No eligible embedding model succeeded (missing keys, budgets, or provider errors).</p>
+        <p class="fix"><strong>Fix:</strong> Add an embedding provider key and confirm the Embedding models section on the dashboard.</p>
       </div>
     </section>
 
@@ -446,10 +461,10 @@
       <div class="row">
         <div class="meta">
           <span class="pill info">open</span>
-          <span class="code">/login · /help · /v1/status · /v1/health · /v1/complete*</span>
+          <span class="code">/login · /help · /v1/status · /v1/health · /v1/complete* · /v1/embed*</span>
         </div>
         <p class="title">Public routes</p>
-        <p class="what">No admin session required. * /v1/complete may still require API keys when REQUIRE_AUTH=true.</p>
+        <p class="what">No admin session required. * /v1/complete and /v1/embed may still require API keys when REQUIRE_AUTH=true.</p>
       </div>
     </section>
   </main>

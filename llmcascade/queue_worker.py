@@ -124,10 +124,14 @@ class RouterClient:
         self.selector.strategy = self._strategy
         return len(new_registry)
 
-    async def _execute(self, model: ModelConfig, prompt: str, **params: Any) -> LLMResponse:
+    async def _execute(
+        self, model: ModelConfig, prompt: str, *, capability: str = "chat", **params: Any
+    ) -> LLMResponse:
         wait_for_gemini = bool(params.pop("wait_for_gemini", False))
         params.pop("notes", None)
         adapter = get_adapter(model, client=self._client)
+        if capability == "embed":
+            return await adapter.embed(prompt, **params)
         if (
             model.provider == "gemini"
             and self.gemini_cascade is not None
@@ -151,7 +155,9 @@ class RouterClient:
                     continue
 
                 async def executor(model: ModelConfig, prompt: str) -> LLMResponse:
-                    return await self._execute(model, prompt, **job.params)
+                    return await self._execute(
+                        model, prompt, capability=job.capability, **job.params
+                    )
 
                 try:
                     result = await self.selector.dispatch_with_fallback(
@@ -239,6 +245,7 @@ class RouterClient:
             health = {}
             events.record(f"health probe failed: {exc}", level="error", type="health")
         next_model = await self.selector.peek("chat", tokens_estimate=1)
+        next_embed = await self.selector.peek("embed", tokens_estimate=1)
         cooling = budgets.get("model_cooldowns") or {}
         if not isinstance(cooling, dict):
             cooling = {}
@@ -261,7 +268,10 @@ class RouterClient:
                 "free_tier_verified": m.free_tier_verified,
                 "free_tier_note": m.free_tier_note,
                 "free_left": budget if m.free_tier_verified and m.name in active_names else None,
-                "is_next": bool(next_model and next_model.name == m.name),
+                "is_next": bool(
+                    ("embed" in m.capabilities and next_embed and next_embed.name == m.name)
+                    or ("chat" in m.capabilities and next_model and next_model.name == m.name)
+                ),
                 "requests_total": snap["requests_total"].get(m.name, 0),
                 "failures_total": snap["failures_total"].get(m.name, 0),
                 "health": health.get(m.name, {"state": "unknown"}),
@@ -291,6 +301,11 @@ class RouterClient:
             "next_pick": (
                 {"name": next_model.name, "provider": next_model.provider, "priority": next_model.priority}
                 if next_model
+                else None
+            ),
+            "next_embed": (
+                {"name": next_embed.name, "provider": next_embed.provider, "priority": next_embed.priority}
+                if next_embed
                 else None
             ),
             "gemini_cascade": gemini,

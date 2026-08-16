@@ -205,3 +205,156 @@ models:
       max_context: 8192
     capabilities: [chat]
     priority: 130
+
+  # --- Embeddings (separate budgets; vectors returned, never stored) ---
+  - name: gemini-embedding-001
+    provider: gemini
+    endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent
+    auth_env_var: GOOGLE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Gemini Free embeddings · ~1,500 RPD · ~10 RPM (project/model may differ)"
+    limits:
+      rpd: 1500
+      rpm: 10
+      rps: 1
+      tpm: 250000
+      max_context: 2048
+    capabilities: [embed]
+    priority: 10
+
+  - name: mistral-embed
+    provider: mistral
+    endpoint: https://api.mistral.ai/v1/embeddings
+    auth_env_var: MISTRAL_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Mistral embed · workspace trial/free — counters unverified"
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 500000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 20
+
+  - name: embed-english-v3.0
+    provider: cohere
+    endpoint: https://api.cohere.com/v2/embed
+    auth_env_var: COHERE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Cohere trial/free embed · ~20 RPM (monthly call caps may also apply)"
+    limits:
+      rpd: 1000
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 512
+    capabilities: [embed]
+    priority: 30
+
+  - name: sentence-transformers/all-MiniLM-L6-v2
+    provider: huggingface
+    endpoint: https://router.huggingface.co/v1/embeddings
+    auth_env_var: HF_TOKEN
+    free_tier_verified: false
+    free_tier_note: "HF free inference is credit-based — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 50000
+      max_context: 256
+    capabilities: [embed]
+    priority: 40
+
+  - name: "@cf/baai/bge-base-en-v1.5"
+    provider: cloudflare
+    endpoint: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/baai/bge-base-en-v1.5
+    auth_env_var: CLOUDFLARE_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Workers AI embeddings use neurons/day — RPD counter unverified"
+    limits:
+      rpd: 300
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 512
+    capabilities: [embed]
+    priority: 50
+
+  - name: together/bge-base-en-v1.5
+    provider: together
+    api_model: BAAI/bge-base-en-v1.5
+    endpoint: https://api.together.xyz/v1/embeddings
+    auth_env_var: TOGETHER_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Together embeddings · reduced free RPM — counters unverified"
+    limits:
+      rpd: 100
+      rpm: 10
+      rps: 1
+      tpm: 60000
+      max_context: 512
+    capabilities: [embed]
+    priority: 60
+
+  - name: nvidia/nv-embedqa-e5-v5
+    provider: nvidia
+    endpoint: https://integrate.api.nvidia.com/v1/embeddings
+    auth_env_var: NVIDIA_NIM_API_KEY
+    free_tier_verified: true
+    free_tier_note: "NVIDIA NIM free embed · ~40 RPM (no published RPD; local RPD is soft)"
+    limits:
+      rpd: 1000
+      rpm: 40
+      rps: 1
+      tpm: 40000
+      max_context: 512
+    capabilities: [embed]
+    priority: 70
+
+  - name: deepinfra/bge-base-en-v1.5
+    provider: deepinfra
+    api_model: BAAI/bge-base-en-v1.5
+    endpoint: https://api.deepinfra.com/v1/openai/embeddings
+    auth_env_var: DEEPINFRA_API_KEY
+    free_tier_verified: false
+    free_tier_note: "DeepInfra free credits rotate — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 60
+      rps: 2
+      tpm: 60000
+      max_context: 512
+    capabilities: [embed]
+    priority: 80
+
+  - name: qwen/qwen3-embedding-8b:free
+    provider: openrouter
+    endpoint: https://openrouter.ai/api/v1/embeddings
+    auth_env_var: OPENROUTER_API_KEY
+    free_tier_verified: true
+    free_tier_note: "OpenRouter :free embeddings · 50 RPD (1,000 if ≥$10 credits) · 20 RPM"
+    limits:
+      rpd: 50
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 90
+
+  - name: jina-embeddings-v3
+    provider: jina
+    endpoint: https://api.jina.ai/v1/embeddings
+    auth_env_var: JINA_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Jina free · ~1M tokens · embeddings-v3"
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 100

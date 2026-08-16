@@ -108,6 +108,24 @@ def test_hashed_api_key_ok(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     assert good.status_code == 200
 
 
+def test_embed_open_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    async def fake_submit(prompt, capability="chat", notes=None, **params):
+        from llmcascade.adapters.base import LLMResponse
+
+        assert capability == "embed"
+        return LLMResponse(model="e", embedding=[0.1], dimensions=1, tokens_used=1, latency_ms=1.0)
+
+    import llmcascade.api as api_mod
+
+    monkeypatch.setattr(api_mod._client, "submit", fake_submit)
+    r = client.post("/v1/embed", json={"prompt": "doc", "notes": "app"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["embedding"] == [0.1]
+    assert body["dimensions"] == 1
+    assert body["text"] == ""
+
+
 def test_bcrypt_entry_in_api_keys_env(monkeypatch: pytest.MonkeyPatch):
     hashed = bcrypt.hashpw(b"mixed-key", bcrypt.gensalt()).decode("ascii")
     monkeypatch.setenv("LLMCASCADE_API_KEYS", f"plain-one,{hashed}")

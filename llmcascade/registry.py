@@ -32,6 +32,7 @@ _PROVIDER_AUTH: dict[str, str] = {
     "cohere": "COHERE_API_KEY",
     "nvidia": "NVIDIA_NIM_API_KEY",
     "deepinfra": "DEEPINFRA_API_KEY",
+    "jina": "JINA_API_KEY",
 }
 
 
@@ -58,6 +59,8 @@ class ModelConfig(BaseModel):
     # Which encrypted key pool to use when env key is absent.
     key_tier: KeyTier = "free"
     custom: bool = False
+    # Provider model id when `name` is a unique registry key.
+    api_model: str = ""
     # Ordered Gemini model IDs under one logical entry (provider=gemini).
     cascade: list[str] = Field(default_factory=list)
     # When true, limits are treated as researched free-tier caps; dashboard shows remaining.

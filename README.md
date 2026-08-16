@@ -60,6 +60,7 @@ If the server has `REQUIRE_AUTH=true` (or production profile), send `Authorizati
 | Method | Path | Notes |
 |--------|------|--------|
 | `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"? }` |
+| `POST` | `/v1/embed` | `{ "prompt", "params"?, "notes"? }` — returns `embedding`, never stored |
 | `GET` | `/v1/status` | Budgets + Gemini snapshot |
 | `GET` | `/v1/health` | Provider reachability |
 | `GET` | `/help` | Public error catalog (no login) |
@@ -86,6 +87,7 @@ Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats`, `/v1/events`, `/v1/errors
 | Cohere | `COHERE_API_KEY` |
 | NVIDIA NIM | `NVIDIA_NIM_API_KEY` |
 | DeepInfra | `DEEPINFRA_API_KEY` |
+| Jina | `JINA_API_KEY` |
 
 IDs and free-tier limits: [`llmcascade/models.yaml`](llmcascade/models.yaml). Missing keys skip that provider. Env vars **override** UI-stored keys.
 

@@ -350,7 +350,7 @@
   <div class="shell">
   <main>
     <section class="panel">
-      <h2>Configured models</h2>
+      <h2>Prompt models</h2>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -368,6 +368,28 @@
             </tr>
           </thead>
           <tbody id="models"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Embedding models</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Key</th>
+              <th>Active</th>
+              <th>Free/Paid</th>
+              <th>Health</th>
+              <th>Free tier</th>
+              <th>Free left</th>
+              <th>Budget left</th>
+              <th>Reqs</th>
+              <th>Fails</th>
+            </tr>
+          </thead>
+          <tbody id="embed-models"></tbody>
         </table>
       </div>
     </section>
@@ -475,8 +497,13 @@
         <div class="free-note">${escapeHtml(m.free_tier_note || "")}</div>`;
     }
 
-    function renderModels(models, nextPick) {
-      const tb = $("models");
+    function renderModels(tbodyId, models, nextPick) {
+      const tb = $(tbodyId);
+      if (!tb) return;
+      if (!models.length) {
+        tb.innerHTML = `<tr><td colspan="10" class="budget">none configured</td></tr>`;
+        return;
+      }
       tb.innerHTML = models.map((m) => {
         const h = m.health || {};
         const state = h.state || "unknown";
@@ -609,7 +636,11 @@
         const res = await fetch("/v1/dashboard");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        renderModels(data.models || [], data.next_pick);
+        const models = data.models || [];
+        const chat = models.filter((m) => (m.capabilities || []).includes("chat"));
+        const embed = models.filter((m) => (m.capabilities || []).includes("embed"));
+        renderModels("models", chat, data.next_pick);
+        renderModels("embed-models", embed, data.next_embed);
         renderGemini(data.gemini_cascade);
         lastEvents = data.events || [];
         lastErrors = data.errors || [];

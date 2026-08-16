@@ -17,7 +17,7 @@ class OpenAICompatibleAdapter(BaseAdapter):
     async def send(self, prompt: str, **params: Any) -> LLMResponse:
         start = time.perf_counter()
         body = {
-            "model": self.model.name,
+            "model": self.model_id(),
             "messages": [{"role": "user", "content": prompt}],
             **{k: v for k, v in params.items() if k != "messages"},
         }
@@ -65,6 +65,60 @@ class OpenAICompatibleAdapter(BaseAdapter):
             raw=data,
         )
 
+    async def embed(self, prompt: str, **params: Any) -> LLMResponse:
+        start = time.perf_counter()
+        body = {
+            "model": self.model.api_model or self.model.name,
+            "input": prompt,
+            **{k: v for k, v in params.items() if k not in ("input", "messages")},
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            **self.extra_headers,
+        }
+        client = await self._http()
+        try:
+            resp = await client.post(self.model.endpoint, json=body, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                f"{self.model.provider} timeout",
+                retryable=True,
+                provider=self.model.provider,
+                model=self.model.name,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"{self.model.provider} transport error: {exc}",
+                retryable=True,
+                provider=self.model.provider,
+                model=self.model.name,
+            ) from exc
+        if resp.status_code >= 400:
+            self._raise_http(resp)
+        data = resp.json()
+        try:
+            vec = data["data"][0]["embedding"]
+            if not isinstance(vec, list) or not vec:
+                raise TypeError("empty embedding")
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderError(
+                f"{self.model.provider} unexpected embedding shape",
+                retryable=False,
+                provider=self.model.provider,
+                model=self.model.name,
+            ) from exc
+        usage = data.get("usage") or {}
+        tokens = int(usage.get("total_tokens") or usage.get("prompt_tokens") or 0)
+        return LLMResponse(
+            model=self.model.name,
+            tokens_used=tokens,
+            latency_ms=timed_ms(start),
+            embedding=[float(x) for x in vec],
+            dimensions=len(vec),
+            raw={"usage": usage, "model": data.get("model") or self.model.name},
+        )
+
 
 class GroqAdapter(OpenAICompatibleAdapter):
     pass
@@ -103,4 +157,8 @@ class NvidiaAdapter(OpenAICompatibleAdapter):
 
 
 class DeepInfraAdapter(OpenAICompatibleAdapter):
+    pass
+
+
+class JinaAdapter(OpenAICompatibleAdapter):
     pass

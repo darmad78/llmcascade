@@ -12,10 +12,12 @@ from llmcascade.registry import ModelConfig
 
 
 class LLMResponse(BaseModel):
-    text: str
+    text: str = ""
     model: str
     tokens_used: int = 0
     latency_ms: float = 0.0
+    embedding: list[float] | None = None
+    dimensions: int = 0
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -25,6 +27,9 @@ class BaseAdapter(ABC):
         self.api_key = api_key
         self._client = client
         self._owns_client = client is None
+
+    def model_id(self) -> str:
+        return self.model.api_model or self.model.name
 
     async def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -51,6 +56,14 @@ class BaseAdapter(ABC):
     @abstractmethod
     async def send(self, prompt: str, **params: Any) -> LLMResponse:
         ...
+
+    async def embed(self, prompt: str, **params: Any) -> LLMResponse:
+        raise ProviderError(
+            f"{self.model.provider} does not support embeddings",
+            retryable=False,
+            provider=self.model.provider,
+            model=self.model.name,
+        )
 
 
 def timed_ms(start: float) -> float:

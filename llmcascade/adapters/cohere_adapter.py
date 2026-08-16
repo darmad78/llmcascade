@@ -13,7 +13,7 @@ class CohereAdapter(BaseAdapter):
     async def send(self, prompt: str, **params: Any) -> LLMResponse:
         start = time.perf_counter()
         body: dict[str, Any] = {
-            "model": self.model.name,
+            "model": self.model_id(),
             "messages": [{"role": "user", "content": prompt}],
             **{k: v for k, v in params.items() if k not in ("messages", "message")},
         }
@@ -81,4 +81,73 @@ class CohereAdapter(BaseAdapter):
                     return "".join(parts)
         if isinstance(data.get("text"), str):
             return data["text"]
+        return None
+
+    async def embed(self, prompt: str, **params: Any) -> LLMResponse:
+        start = time.perf_counter()
+        body: dict[str, Any] = {
+            "model": self.model_id(),
+            "texts": [prompt],
+            "input_type": params.pop("input_type", "search_document"),
+            "embedding_types": ["float"],
+            **{k: v for k, v in params.items() if k not in ("texts", "messages", "message")},
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        client = await self._http()
+        try:
+            resp = await client.post(self.model.endpoint, json=body, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                "cohere timeout",
+                retryable=True,
+                provider=self.model.provider,
+                model=self.model.name,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"cohere transport error: {exc}",
+                retryable=True,
+                provider=self.model.provider,
+                model=self.model.name,
+            ) from exc
+        if resp.status_code >= 400:
+            self._raise_http(resp)
+        data = resp.json()
+        vec = self._extract_embedding(data)
+        if vec is None:
+            raise ProviderError(
+                "cohere unexpected embedding shape",
+                retryable=False,
+                provider=self.model.provider,
+                model=self.model.name,
+            )
+        usage = data.get("meta") or data.get("usage") or {}
+        billed = usage.get("billed_units") or {}
+        tokens = int(billed.get("input_tokens") or billed.get("tokens") or 0)
+        return LLMResponse(
+            model=self.model.name,
+            tokens_used=tokens,
+            latency_ms=timed_ms(start),
+            embedding=vec,
+            dimensions=len(vec),
+            raw={"meta": usage},
+        )
+
+    @staticmethod
+    def _extract_embedding(data: dict[str, Any]) -> list[float] | None:
+        embeddings = data.get("embeddings")
+        if isinstance(embeddings, dict):
+            floats = embeddings.get("float")
+            if isinstance(floats, list) and floats:
+                row = floats[0]
+                if isinstance(row, list):
+                    return [float(x) for x in row]
+        if isinstance(embeddings, list) and embeddings:
+            row = embeddings[0]
+            if isinstance(row, list):
+                return [float(x) for x in row]
         return None

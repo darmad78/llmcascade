@@ -64,6 +64,42 @@ def test_pivot_series_rolls_provider():
     assert row["by_notes"]["app"]["success_rate"] == 0.75
 
 
+def test_pivot_series_by_capability():
+    store = StatsStore.__new__(StatsStore)
+    docs = [
+        {
+            "grain": "hour",
+            "bucket": datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+            "model": "chat-m",
+            "provider": "p1",
+            "capability": "chat",
+            "requests": 4,
+            "failures": 0,
+            "latency_sum_ms": 400.0,
+            "latency_max_ms": 120.0,
+            "tokens_sum": 40,
+        },
+        {
+            "grain": "hour",
+            "bucket": datetime(2026, 8, 16, 10, 0, tzinfo=timezone.utc),
+            "model": "embed-m",
+            "provider": "p2",
+            "capability": "embed",
+            "requests": 2,
+            "failures": 1,
+            "latency_sum_ms": 80.0,
+            "latency_max_ms": 50.0,
+            "tokens_sum": 10,
+        },
+    ]
+    series = store._pivot_series(docs)
+    row = series[0]
+    assert row["by_capability"]["chat"]["requests"] == 4
+    assert row["by_capability"]["embed"]["requests"] == 2
+    assert row["by_capability"]["embed"]["success_rate"] == 0.5
+    assert row["by_model"]["embed-m"]["capability"] == "embed"
+
+
 async def test_null_stats_store():
     store = NullStatsStore(detail="no uri")
     store.enqueue(model="m", provider="p", success=True)

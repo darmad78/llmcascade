@@ -147,7 +147,7 @@ class ModelSelector:
                 resp = await self._try_model(model, prompt, executor)
                 used = resp.tokens_used or tokens_est
                 await self.rate_limiter.record_usage(model.name, used)
-                metrics.record_success(model.name)
+                metrics.record_success(model.name, capability)
                 await self.stats.record(
                     model=model.name,
                     provider=model.provider,
@@ -155,6 +155,7 @@ class ModelSelector:
                     latency_ms=resp.latency_ms,
                     tokens_used=used,
                     notes=note,
+                    capability=capability,
                 )
                 log.info(
                     "request ok",
@@ -165,6 +166,7 @@ class ModelSelector:
                         "tokens_used": used,
                         "provider": model.provider,
                         "capability": capability,
+                        "dimensions": resp.dimensions,
                         **note_detail,
                     },
                 )
@@ -183,7 +185,7 @@ class ModelSelector:
                 return resp
             except ProviderError as exc:
                 last_err = exc
-                metrics.record_failure(model.name)
+                metrics.record_failure(model.name, capability)
                 await self.stats.record(
                     model=model.name,
                     provider=model.provider,
@@ -191,6 +193,7 @@ class ModelSelector:
                     latency_ms=0,
                     tokens_used=0,
                     notes=note,
+                    capability=capability,
                 )
                 if self.cooldowns is not None and model.provider != "gemini":
                     # Gemini cascade owns per-member cooldowns; do not pin the logical

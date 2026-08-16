@@ -226,6 +226,108 @@ async def test_cohere_success():
     assert resp.tokens_used == 5
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_openai_compat_embed():
+    url = "https://api.mistral.ai/v1/embeddings"
+    respx.post(url).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"embedding": [0.1, 0.2, 0.3]}],
+                "usage": {"total_tokens": 4},
+            },
+        )
+    )
+    model = _oa_model("mistral", "mistral-embed", url)
+    model.capabilities = ["embed"]
+    async with httpx.AsyncClient() as client:
+        adapter = MistralAdapter(model, "secret", client=client)
+        resp = await adapter.embed("doc")
+    assert resp.embedding == [0.1, 0.2, 0.3]
+    assert resp.dimensions == 3
+    assert resp.tokens_used == 4
+    assert resp.text == ""
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_gemini_embed():
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent"
+    respx.post(url__startswith=url).mock(
+        return_value=httpx.Response(
+            200,
+            json={"embedding": {"values": [1.0, 2.0]}, "usageMetadata": {"totalTokenCount": 3}},
+        )
+    )
+    model = ModelConfig(
+        name="gemini-embedding-001",
+        provider="gemini",
+        endpoint="https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent",
+        auth_env_var="GOOGLE_API_KEY",
+        limits=Limits(rpd=10, rpm=10, rps=10, tpm=1000, max_context=2048),
+        capabilities=["embed"],
+        priority=1,
+    )
+    async with httpx.AsyncClient() as client:
+        adapter = GeminiAdapter(model, "secret", client=client)
+        resp = await adapter.embed("doc")
+    assert resp.embedding == [1.0, 2.0]
+    assert resp.dimensions == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cohere_embed():
+    url = "https://api.cohere.com/v2/embed"
+    respx.post(url).mock(
+        return_value=httpx.Response(
+            200,
+            json={"embeddings": {"float": [[0.5, 0.25]]}, "meta": {"billed_units": {"input_tokens": 2}}},
+        )
+    )
+    model = ModelConfig(
+        name="embed-english-v3.0",
+        provider="cohere",
+        endpoint=url,
+        auth_env_var="COHERE_API_KEY",
+        limits=Limits(rpd=10, rpm=10, rps=10, tpm=1000, max_context=512),
+        capabilities=["embed"],
+        priority=1,
+    )
+    async with httpx.AsyncClient() as client:
+        adapter = CohereAdapter(model, "secret", client=client)
+        resp = await adapter.embed("doc")
+    assert resp.embedding == [0.5, 0.25]
+    assert resp.tokens_used == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cloudflare_embed(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+    url = "https://api.cloudflare.com/client/v4/accounts/acct/ai/run/@cf/baai/bge-base-en-v1.5"
+    respx.post(url).mock(
+        return_value=httpx.Response(
+            200,
+            json={"result": {"shape": [1, 2], "data": [[0.1, 0.9]]}},
+        )
+    )
+    model = ModelConfig(
+        name="@cf/baai/bge-base-en-v1.5",
+        provider="cloudflare",
+        endpoint="https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/baai/bge-base-en-v1.5",
+        auth_env_var="CLOUDFLARE_API_KEY",
+        limits=Limits(rpd=10, rpm=10, rps=10, tpm=1000, max_context=512),
+        capabilities=["embed"],
+        priority=1,
+    )
+    async with httpx.AsyncClient() as client:
+        adapter = CloudflareAdapter(model, "secret", client=client)
+        resp = await adapter.embed("doc")
+    assert resp.embedding == [0.1, 0.9]
+
+
 def test_resolve_auth_hf_token_first(monkeypatch):
     monkeypatch.setenv("HF_TOKEN", "hf")
     monkeypatch.setenv("HUGGINGFACE_API_KEY", "legacy")

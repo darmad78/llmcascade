@@ -133,6 +133,35 @@ async def test_credit_cooldown_skips_model_on_next_pick():
 
 
 @pytest.mark.asyncio
+async def test_embed_capability_isolated():
+    chat = _m("chat-m")
+    embed = ModelConfig(
+        name="embed-m",
+        provider="groq",
+        endpoint="https://example.com",
+        auth_env_var="GROQ_API_KEY",
+        limits=Limits(rpd=100, rpm=100, rps=100, tpm=100000, max_context=4096),
+        capabilities=["embed"],
+        priority=1,
+    )
+    sel = ModelSelector([chat, embed], RateLimiter([chat, embed]))
+    assert (await sel.pick("chat")).name == "chat-m"
+    assert (await sel.pick("embed")).name == "embed-m"
+
+    async def executor(model, prompt):
+        return LLMResponse(
+            model=model.name,
+            embedding=[1.0],
+            dimensions=1,
+            tokens_used=2,
+        )
+
+    resp = await sel.dispatch_with_fallback("doc", "embed", executor)
+    assert resp.embedding == [1.0]
+    assert resp.model == "embed-m"
+
+
+@pytest.mark.asyncio
 async def test_rate_cooldown_learns_retry_after():
     from llmcascade.cascade import ModelCooldownTracker
 

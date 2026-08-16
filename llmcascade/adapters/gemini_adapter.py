@@ -99,3 +99,66 @@ class GeminiAdapter(BaseAdapter):
             latency_ms=timed_ms(start),
             raw=data,
         )
+
+    async def embed(self, prompt: str, **params: Any) -> LLMResponse:
+        start = time.perf_counter()
+        model_id = params.pop("model_id", None) or self.model.name
+        if self.model.cascade and model_id == self.model.name:
+            model_id = self.model.cascade[0]
+        body: dict[str, Any] = {
+            "content": {"parts": [{"text": prompt}]},
+        }
+        extra = {k: v for k, v in params.items() if k not in ("content", "contents", "model_id")}
+        body.update(extra)
+        qs = urlencode({"key": self.api_key})
+        url = f"{gemini_endpoint(self.model.endpoint, model_id)}?{qs}"
+        if ":generateContent" in url:
+            url = url.replace(":generateContent", ":embedContent")
+        client = await self._http()
+        try:
+            resp = await client.post(url, json=body, headers={"Content-Type": "application/json"})
+        except httpx.TimeoutException as exc:
+            raise ProviderError(
+                "gemini timeout",
+                retryable=True,
+                provider=self.model.provider,
+                model=model_id,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"gemini transport error: {exc}",
+                retryable=True,
+                provider=self.model.provider,
+                model=model_id,
+            ) from exc
+        if resp.status_code >= 400:
+            raise ProviderError(
+                f"gemini HTTP {resp.status_code}: {resp.text[:500]}",
+                status_code=resp.status_code,
+                retryable=resp.status_code >= 500 or resp.status_code == 408,
+                provider=self.model.provider,
+                model=model_id,
+                headers=dict(resp.headers),
+            )
+        data = resp.json()
+        try:
+            vec = (data.get("embedding") or {}).get("values")
+            if not isinstance(vec, list) or not vec:
+                raise TypeError("empty embedding")
+        except (TypeError, AttributeError) as exc:
+            raise ProviderError(
+                f"gemini unexpected embedding shape: {data!r}"[:400],
+                retryable=False,
+                provider=self.model.provider,
+                model=model_id,
+            ) from exc
+        meta = data.get("usageMetadata") or {}
+        tokens = int(meta.get("totalTokenCount") or 0)
+        return LLMResponse(
+            model=model_id,
+            tokens_used=tokens,
+            latency_ms=timed_ms(start),
+            embedding=[float(x) for x in vec],
+            dimensions=len(vec),
+            raw={"usageMetadata": meta},
+        )
