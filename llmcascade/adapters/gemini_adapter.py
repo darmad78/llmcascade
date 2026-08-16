@@ -101,10 +101,13 @@ class GeminiAdapter(BaseAdapter):
         )
 
     async def embed(self, prompt: str, **params: Any) -> LLMResponse:
-        start = time.perf_counter()
         model_id = params.pop("model_id", None) or self.model.name
         if self.model.cascade and model_id == self.model.name:
             model_id = self.model.cascade[0]
+        return await self.embed_model(model_id, prompt, **params)
+
+    async def embed_model(self, model_id: str, prompt: str, **params: Any) -> LLMResponse:
+        start = time.perf_counter()
         body: dict[str, Any] = {
             "content": {"parts": [{"text": prompt}]},
         }

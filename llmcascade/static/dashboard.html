@@ -394,7 +394,7 @@
       </div>
     </section>
     <section class="panel" id="gemini-panel" hidden>
-      <h2>Gemini cascade</h2>
+      <h2>Gemini chat cascade</h2>
       <div class="summary" id="gemini-summary"></div>
       <div style="overflow-x:auto">
         <table>
@@ -407,6 +407,23 @@
             </tr>
           </thead>
           <tbody id="gemini-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel" id="gemini-embed-panel" hidden>
+      <h2>Gemini embed cascade</h2>
+      <div class="summary" id="gemini-embed-summary"></div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Cascade model</th>
+              <th>State</th>
+              <th>Cooldown</th>
+              <th>Ready at (UTC)</th>
+            </tr>
+          </thead>
+          <tbody id="gemini-embed-rows"></tbody>
         </table>
       </div>
     </section>
@@ -529,8 +546,9 @@
       }).join("");
     }
 
-    function renderGemini(g) {
-      const panel = $("gemini-panel");
+    function renderGemini(g, panelId, summaryId, rowsId) {
+      const panel = $(panelId);
+      if (!panel) return;
       if (!g || !g.models || !g.models.length) {
         panel.hidden = true;
         return;
@@ -541,7 +559,7 @@
       const next = g.family_ready
         ? "now"
         : (g.next_ready_in_s != null ? fmtDuration(g.next_ready_in_s) : "—");
-      $("gemini-summary").innerHTML = `
+      $(summaryId).innerHTML = `
         <span>family <strong class="pill ${readyCls}">${readyLabel}</strong></span>
         <span>budget <strong>${escapeHtml(fmtBudget(g.budget))}</strong></span>
         <span>reqs <strong>${g.requests_total ?? 0}</strong></span>
@@ -551,7 +569,7 @@
       const cooling = g.cooldown_remaining_s || {};
       const at = g.available_at || {};
       const available = new Set(g.available || []);
-      $("gemini-rows").innerHTML = (g.models || []).map((id) => {
+      $(rowsId).innerHTML = (g.models || []).map((id) => {
         const isReady = available.has(id);
         const rem = cooling[id];
         const state = isReady ? "ready" : "cooling";
@@ -641,7 +659,8 @@
         const embed = models.filter((m) => (m.capabilities || []).includes("embed"));
         renderModels("models", chat, data.next_pick);
         renderModels("embed-models", embed, data.next_embed);
-        renderGemini(data.gemini_cascade);
+        renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
+        renderGemini(data.gemini_embed_cascade, "gemini-embed-panel", "gemini-embed-summary", "gemini-embed-rows");
         lastEvents = data.events || [];
         lastErrors = data.errors || [];
         renderLog($("events"), filterByType(lastEvents), "no events yet");

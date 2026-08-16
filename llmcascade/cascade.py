@@ -144,10 +144,14 @@ def needs_thinking_budget_zero(model_id: str) -> bool:
     return "2.5" in mid or mid.startswith("gemini-3")
 
 
-def resolve_cascade_order(configured: list[str] | None = None) -> list[str]:
-    """Ordered cascade; GEMINI_MODEL env becomes preferred head when set."""
+def resolve_cascade_order(
+    configured: list[str] | None = None,
+    *,
+    preferred_env: str | None = "GEMINI_MODEL",
+) -> list[str]:
+    """Ordered cascade; optional env var becomes preferred head when set."""
     base = list(configured) if configured else list(DEFAULT_GEMINI_CASCADE)
-    preferred = (os.environ.get("GEMINI_MODEL") or "").strip()
+    preferred = (os.environ.get(preferred_env) or "").strip() if preferred_env else ""
     if preferred:
         base = [m for m in base if m != preferred]
         base.insert(0, preferred)
@@ -161,9 +165,13 @@ def resolve_cascade_order(configured: list[str] | None = None) -> list[str]:
     return out
 
 
-def effective_cascade_members(configured: list[str] | None = None) -> list[str]:
+def effective_cascade_members(
+    configured: list[str] | None = None,
+    *,
+    preferred_env: str | None = "GEMINI_MODEL",
+) -> list[str]:
     """Cascade IDs after admin Hide + weight reorder (higher weight tried first)."""
-    base = resolve_cascade_order(configured)
+    base = resolve_cascade_order(configured, preferred_env=preferred_env)
     try:
         from llmcascade.model_store import load_overrides
 
@@ -198,8 +206,13 @@ def gemini_endpoint(base_endpoint: str, model_id: str) -> str:
 class GeminiCascadeManager:
     """Process-local per-model cooldown map for the Gemini cascade family."""
 
-    def __init__(self, models: list[str] | None = None) -> None:
-        self.models = resolve_cascade_order(models)
+    def __init__(
+        self,
+        models: list[str] | None = None,
+        *,
+        preferred_env: str | None = "GEMINI_MODEL",
+    ) -> None:
+        self.models = resolve_cascade_order(models, preferred_env=preferred_env)
         self._cooldowns: dict[str, datetime] = {}
         self._lock = asyncio.Lock()
 
@@ -403,20 +416,22 @@ class ModelCooldownTracker:
         return cooling
 
 
-def cascade_manager_from_registry(registry: list[ModelConfig]) -> GeminiCascadeManager | None:
+def cascade_manager_from_registry(
+    registry: list[ModelConfig],
+    *,
+    capability: str = "chat",
+) -> GeminiCascadeManager | None:
+    preferred_env = "GEMINI_EMBED_MODEL" if capability == "embed" else "GEMINI_MODEL"
     for m in registry:
-        if m.provider == "gemini" and m.cascade:
-            members = effective_cascade_members(m.cascade)
-            if not members:
-                continue
-            mgr = GeminiCascadeManager(members)
-            mgr.bind_logical(m.name)
-            return mgr
-        if m.provider == "gemini" and not m.cascade:
-            members = effective_cascade_members([m.name])
-            if not members:
-                continue
-            mgr = GeminiCascadeManager(members)
-            mgr.bind_logical(m.name)
-            return mgr
+        if m.provider != "gemini":
+            continue
+        if capability not in (m.capabilities or []):
+            continue
+        ids = list(m.cascade) if m.cascade else [m.name]
+        members = effective_cascade_members(ids, preferred_env=preferred_env)
+        if not members:
+            continue
+        mgr = GeminiCascadeManager(members, preferred_env=None)
+        mgr.bind_logical(m.name)
+        return mgr
     return None

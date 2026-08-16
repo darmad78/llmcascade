@@ -129,11 +129,16 @@ def _missing_auth_label(auth_env_var: str) -> str:
 def _model_ready(model: ModelConfig) -> bool:
     if not model.enabled:
         return False
-    if model.cascade:
-        from llmcascade.cascade import effective_cascade_members
+        if model.cascade:
+            from llmcascade.cascade import effective_cascade_members
 
-        if not effective_cascade_members(model.cascade):
-            return False
+            env = (
+                "GEMINI_EMBED_MODEL"
+                if "embed" in model.capabilities and "chat" not in model.capabilities
+                else "GEMINI_MODEL"
+            )
+            if not effective_cascade_members(model.cascade, preferred_env=env):
+                return False
     if not resolve_auth_env(model.auth_env_var, provider=model.provider, key_tier=model.key_tier):
         return False
     if model.provider == "cloudflare" and not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
