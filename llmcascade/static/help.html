@@ -39,7 +39,9 @@
     .header-left { display: flex; flex-wrap: wrap; align-items: center; gap: 0.85rem 1.25rem; }
     h1 { margin: 0; font-size: 1.35rem; font-weight: 650; }
     h1 span { color: var(--muted); font-weight: 500; }
-    .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    body.area-embed .help-llm { display: none; }
+    body.area-llm .help-embed { display: none; }
     .nav-btn {
       display: inline-block;
       padding: 0.28rem 0.7rem;
@@ -149,15 +151,11 @@
     footer a { color: var(--muted); }
   </style>
 </head>
-<body>
+<body class="area-__AREA__">
   <header>
     <div class="header-left">
       <h1>llmcascade <span>help &amp; errors</span></h1>
-      <nav class="page-nav" aria-label="Pages">
-        <a class="nav-btn" href="/login">Login</a>
-        <a class="nav-btn" href="/dashboard">Dashboard</a>
-        <a class="nav-btn is-active" href="/help">Help</a>
-      </nav>
+      __NAV__
     </div>
   </header>
   <main>
@@ -166,8 +164,8 @@
       Upstream provider ToS/quota errors are not listed here — only what this process returns or surfaces.
     </p>
     <nav class="toc" aria-label="Sections">
-      <a href="#complete">/v1/complete</a>
-      <a href="#embed">/v1/embed</a>
+      <a class="help-llm" href="#complete">/v1/complete</a>
+      <a class="help-embed" href="#embed">/v1/embed</a>
       <a href="#admin">Admin / session</a>
       <a href="#csrf">CSRF</a>
       <a href="#startup">Startup / registry</a>
@@ -176,7 +174,7 @@
       <a href="#redirects">Redirects</a>
     </nav>
 
-    <section id="complete">
+    <section id="complete" class="help-llm">
       <h2>POST /v1/complete</h2>
       <p class="lead">Completion API. Auth is optional and off by default.</p>
 
@@ -240,7 +238,7 @@
       </div>
     </section>
 
-    <section id="embed">
+    <section id="embed" class="help-embed">
       <h2>POST /v1/embed</h2>
       <p class="lead">Embedding API. Same auth as <code>/v1/complete</code>. Body is <code>prompt</code> plus required <code>model</code> (must stay the same for a corpus — embeddings are not cascaded). Vectors are returned and not stored.</p>
       <div class="row">

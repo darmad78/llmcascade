@@ -23,7 +23,7 @@
     .header-left { display: flex; flex-wrap: wrap; align-items: center; gap: 0.85rem 1.25rem; }
     h1 { margin: 0; font-size: 1.35rem; }
     h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
-    .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     .nav-btn {
       display: inline-block; padding: 0.28rem 0.7rem; border-radius: 4px;
       border: 1px solid var(--line); color: var(--muted); text-decoration: none;
@@ -81,13 +81,7 @@
   <header>
     <div class="header-left">
       <h1>llmcascade <span style="color:var(--muted);font-weight:500">providers &amp; models</span></h1>
-      <nav class="page-nav" aria-label="Pages">
-        <a class="nav-btn" href="/dashboard">Status</a>
-        <a class="nav-btn" href="/stats">Stats</a>
-        <a class="nav-btn is-active" href="/admin/providers">Providers</a>
-        <a class="nav-btn" href="/help">Help</a>
-        <a class="nav-btn" href="/logout">Logout</a>
-      </nav>
+      __NAV__
     </div>
   </header>
   <main>
@@ -161,6 +155,7 @@
   </main>
   <script>
     const CSRF_TOKEN = "__CSRF_TOKEN__";
+    const CAPABILITY = "__CAPABILITY__";
     const $ = (id) => document.getElementById(id);
     function csrfHeaders() {
       return { "Content-Type": "application/json", "X-CSRF-Token": CSRF_TOKEN };
@@ -172,11 +167,12 @@
     }
 
     async function load() {
-      const res = await fetch("/admin/providers/data");
+      const res = await fetch(`/admin/providers/data?capability=${encodeURIComponent(CAPABILITY)}`);
       if (!res.ok) throw new Error("failed to load");
       const data = await res.json();
       renderProviders(data.providers || []);
       renderModels(data.models || []);
+      $("m-capability").value = CAPABILITY;
       const sel = $("m-provider");
       sel.innerHTML = (data.provider_options || []).map((p) => `<option value="${p}">${p}</option>`).join("");
     }

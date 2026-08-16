@@ -52,7 +52,7 @@
       letter-spacing: -0.02em;
     }
     h1 span { color: var(--muted); font-weight: 500; }
-    .page-nav { display: flex; gap: 0.4rem; }
+    .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     .nav-btn {
       display: inline-block;
       padding: 0.28rem 0.7rem;
@@ -337,20 +337,14 @@
   <header>
     <div class="header-left">
       <h1>llmcascade <span>status</span></h1>
-      <nav class="page-nav" aria-label="Pages">
-        <a class="nav-btn is-active" href="/dashboard">Status</a>
-        <a class="nav-btn" href="/stats">Stats</a>
-        <a class="nav-btn" href="/admin/providers">Providers</a>
-        <a class="nav-btn" href="/help">Help</a>
-        <a class="nav-btn" href="/logout">Logout</a>
-      </nav>
+      __NAV__
     </div>
     <div class="meta" id="meta">loading…</div>
   </header>
   <div class="shell">
   <main>
     <section class="panel">
-      <h2>Prompt models</h2>
+      <h2>__MODELS_HEADING__</h2>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -368,28 +362,6 @@
             </tr>
           </thead>
           <tbody id="models"></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Embedding models</h2>
-      <div style="overflow-x:auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Model</th>
-              <th>Key</th>
-              <th>Active</th>
-              <th>Free/Paid</th>
-              <th>Health</th>
-              <th>Free tier</th>
-              <th>Free left</th>
-              <th>Budget left</th>
-              <th>Reqs</th>
-              <th>Fails</th>
-            </tr>
-          </thead>
-          <tbody id="embed-models"></tbody>
         </table>
       </div>
     </section>
@@ -437,6 +409,7 @@
   </aside>
   </div>
   <script>
+    const CAPABILITY = "__CAPABILITY__";
     const $ = (id) => document.getElementById(id);
 
     function csrfToken() {
@@ -634,14 +607,11 @@
 
     async function refresh() {
       try {
-        const res = await fetch("/v1/dashboard");
+        const res = await fetch(`/v1/dashboard?capability=${encodeURIComponent(CAPABILITY)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const models = data.models || [];
-        const chat = models.filter((m) => (m.capabilities || []).includes("chat"));
-        const embed = models.filter((m) => (m.capabilities || []).includes("embed"));
-        renderModels("models", chat, data.next_pick);
-        renderModels("embed-models", embed, data.next_embed);
+        renderModels("models", models, data.next_pick);
         renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
         lastEvents = data.events || [];
         lastErrors = data.errors || [];

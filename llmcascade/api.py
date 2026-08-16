@@ -57,6 +57,7 @@ from llmcascade.model_store import (
     set_override,
     upsert_custom_model,
 )
+from llmcascade.ui import filter_dashboard, filter_stats_snapshot, nav_html
 from llmcascade.health import probe_model
 from llmcascade.registry import ModelConfig, Limits
 
@@ -254,13 +255,16 @@ async def admin_auth_middleware(request: Request, call_next):
 
     session = validate_session(request.cookies.get(SESSION_COOKIE))
     if session is None:
-        if wants_html(request.headers.get("accept")) or path in ("/dashboard", "/stats") or path.startswith("/admin"):
+        if wants_html(request.headers.get("accept")) or path in (
+            "/dashboard",
+            "/stats",
+        ) or path.startswith("/admin") or path.startswith("/embed/"):
             return RedirectResponse(url="/login", status_code=303)
         return JSONResponse({"detail": "authentication required"}, status_code=401)
 
     _user, claims = session
     if claims.must_change_password and not path_allowed_during_password_change(path):
-        if wants_html(request.headers.get("accept")) or path.startswith("/admin") or path in ("/dashboard", "/stats"):
+        if wants_html(request.headers.get("accept")) or path.startswith("/admin") or path.startswith("/embed/") or path in ("/dashboard", "/stats"):
             return RedirectResponse(url="/admin/change-password", status_code=303)
         return JSONResponse({"detail": "password change required"}, status_code=403)
 
@@ -278,6 +282,24 @@ def _require_client() -> RouterClient:
 def _require_csrf(request: Request, submitted: str | None) -> None:
     if not csrf_ok(request.cookies.get(CSRF_COOKIE), submitted):
         raise HTTPException(status_code=403, detail="invalid CSRF token")
+
+
+def _inject_page(html: str, *, area: str, active: str) -> str:
+    prefix = "" if area == "llm" else "/embed"
+    cap = "chat" if area == "llm" else "embed"
+    heading = "Configured models" if area == "llm" else "Embedding models"
+    html = html.replace("__NAV__", nav_html(area, active))
+    html = html.replace("__AREA__", area)
+    html = html.replace("__PREFIX__", prefix)
+    html = html.replace("__CAPABILITY__", cap)
+    html = html.replace("__MODELS_HEADING__", heading)
+    return html
+
+
+def _html_file(path: Path, *, area: str, active: str) -> HTMLResponse:
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"{path.name} missing")
+    return HTMLResponse(_inject_page(path.read_text(encoding="utf-8"), area=area, active=active))
 
 
 def _dashboard_session_ok(request: Request) -> bool:
@@ -372,8 +394,14 @@ async def metrics_endpoint() -> dict[str, Any]:
 
 
 @app.get("/v1/stats")
-async def stats_endpoint(range: str = Query(default="7d", pattern="^(24h|1d|7d|30d)$")) -> dict[str, Any]:
-    return await _require_client().stats_snapshot(range)
+async def stats_endpoint(
+    range: str = Query(default="7d", pattern="^(24h|1d|7d|30d)$"),
+    capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
+) -> dict[str, Any]:
+    snap = await _require_client().stats_snapshot(range)
+    if capability:
+        snap = filter_stats_snapshot(snap, capability)
+    return snap
 
 
 @app.get("/v1/health")
@@ -392,22 +420,34 @@ async def errors_endpoint(limit: int | None = None) -> list[dict[str, Any]]:
 
 
 @app.get("/v1/dashboard")
-async def dashboard_data(force_health: bool = False) -> dict[str, Any]:
-    return await _require_client().dashboard_snapshot(force_health=force_health)
+async def dashboard_data(
+    force_health: bool = False,
+    capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
+) -> dict[str, Any]:
+    snap = await _require_client().dashboard_snapshot(force_health=force_health)
+    if capability:
+        snap = filter_dashboard(snap, capability)
+    return snap
 
 
 @app.get("/dashboard")
-async def dashboard_page() -> FileResponse:
-    if not _DASHBOARD_HTML.is_file():
-        raise HTTPException(status_code=404, detail="dashboard.html missing")
-    return FileResponse(_DASHBOARD_HTML, media_type="text/html")
+async def dashboard_page() -> HTMLResponse:
+    return _html_file(_DASHBOARD_HTML, area="llm", active="status")
+
+
+@app.get("/embed/dashboard")
+async def embed_dashboard_page() -> HTMLResponse:
+    return _html_file(_DASHBOARD_HTML, area="embed", active="status")
 
 
 @app.get("/stats")
-async def stats_page() -> FileResponse:
-    if not _STATS_HTML.is_file():
-        raise HTTPException(status_code=404, detail="stats.html missing")
-    return FileResponse(_STATS_HTML, media_type="text/html")
+async def stats_page() -> HTMLResponse:
+    return _html_file(_STATS_HTML, area="llm", active="stats")
+
+
+@app.get("/embed/stats")
+async def embed_stats_page() -> HTMLResponse:
+    return _html_file(_STATS_HTML, area="embed", active="stats")
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -425,10 +465,13 @@ async def login_page(request: Request) -> Response:
 
 
 @app.get("/help", response_class=HTMLResponse)
-async def help_page() -> FileResponse:
-    if not _HELP_HTML.is_file():
-        raise HTTPException(status_code=404, detail="help.html missing")
-    return FileResponse(_HELP_HTML, media_type="text/html")
+async def help_page() -> HTMLResponse:
+    return _html_file(_HELP_HTML, area="llm", active="help")
+
+
+@app.get("/embed/help", response_class=HTMLResponse)
+async def embed_help_page() -> HTMLResponse:
+    return _html_file(_HELP_HTML, area="embed", active="help")
 
 
 @app.post("/login")
@@ -513,21 +556,33 @@ async def change_password_submit(
     return resp
 
 
-@app.get("/admin/providers", response_class=HTMLResponse)
-async def admin_providers_page(request: Request) -> Response:
+def _providers_page(request: Request, area: str) -> HTMLResponse:
     if not _ADMIN_PROVIDERS_HTML.is_file():
         raise HTTPException(status_code=404, detail="admin_providers.html missing")
     html = _ADMIN_PROVIDERS_HTML.read_text(encoding="utf-8")
     token = new_csrf_token()
     html = html.replace("__CSRF_TOKEN__", token)
+    html = _inject_page(html, area=area, active="providers")
     secure = cookie_secure(_is_https(request))
     resp = HTMLResponse(html)
     resp.set_cookie(CSRF_COOKIE, token, **csrf_cookie_kwargs(secure=secure))
     return resp
 
 
+@app.get("/admin/providers", response_class=HTMLResponse)
+async def admin_providers_page(request: Request) -> Response:
+    return _providers_page(request, "llm")
+
+
+@app.get("/embed/providers", response_class=HTMLResponse)
+async def embed_providers_page(request: Request) -> Response:
+    return _providers_page(request, "embed")
+
+
 @app.get("/admin/providers/data")
-async def admin_providers_data() -> dict[str, Any]:
+async def admin_providers_data(
+    capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
+) -> dict[str, Any]:
     import os
 
     stored = list_stored_providers()
@@ -614,6 +669,8 @@ async def admin_providers_data() -> dict[str, Any]:
             }
         )
     models.sort(key=lambda e: (e["provider"], e["priority"], e["name"]))
+    if capability:
+        models = [m for m in models if capability in (m.get("capabilities") or [])]
     return {
         "providers": rows,
         "models": models,
