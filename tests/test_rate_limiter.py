@@ -66,3 +66,10 @@ async def test_concurrent_record_usage():
     await asyncio.gather(*[one() for _ in range(50)])
     rem = await lim.remaining_budget("m1")
     assert rem["rpm"] == 950
+
+
+@pytest.mark.asyncio
+async def test_try_reserve_is_atomic_for_rps():
+    lim = RateLimiter([_model(limits=Limits(rpd=100, rpm=100, rps=1, tpm=10000, max_context=4096))])
+    got = await asyncio.gather(*[lim.try_reserve("m1", 1) for _ in range(8)])
+    assert sum(got) == 1

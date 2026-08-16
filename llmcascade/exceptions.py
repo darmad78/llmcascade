@@ -38,7 +38,9 @@ class ProviderError(Exception):
 
 
 class AllModelsExhaustedError(Exception):
-    pass
+    def __init__(self, message: str, *, http_status: int = 502) -> None:
+        super().__init__(message)
+        self.http_status = http_status
 
 
 class QueueFullError(Exception):

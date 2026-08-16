@@ -137,6 +137,7 @@ class ModelSelector:
         note_detail = {"notes": note} if note else {}
         allow_fallback = capability != "embed" if fallback is None else fallback
         pin = (pinned_model or "").strip() or None
+        budget_blocked = False
 
         while True:
             if pin:
@@ -147,7 +148,8 @@ class ModelSelector:
                     break
                 if pin in tried:
                     break
-                if not await self.rate_limiter.can_proceed(model.name, tokens_est):
+                if not await self.rate_limiter.try_reserve(model.name, tokens_est):
+                    budget_blocked = True
                     break
             else:
                 model = await self.pick(capability, tokens_est)
@@ -158,11 +160,13 @@ class ModelSelector:
                     if not remaining:
                         break
                     model = remaining[0]
+                if not await self.rate_limiter.try_reserve(model.name, tokens_est):
+                    tried.add(model.name)
+                    continue
             tried.add(model.name)
             try:
                 resp = await self._try_model(model, prompt, executor)
                 used = resp.tokens_used or tokens_est
-                await self.rate_limiter.record_usage(model.name, used)
                 metrics.record_success(model.name, capability)
                 await self.stats.record(
                     model=model.name,
@@ -261,9 +265,19 @@ class ModelSelector:
                 continue
 
         if pin:
-            msg = f"embedding model {pin!r} failed or is unavailable"
+            if budget_blocked:
+                rem = await self.rate_limiter.remaining_budget(pin)
+                msg = (
+                    f"embedding model {pin!r} local budget exhausted "
+                    f"(rps {rem.get('rps', 0)} · rpm {rem.get('rpm', 0)} · rpd {rem.get('rpd', 0)} left)"
+                )
+                status = 429
+            else:
+                msg = f"embedding model {pin!r} failed or is unavailable"
+                status = 502
         else:
             msg = f"no free-tier model succeeded for capability={capability!r}"
+            status = 502
         if last_err is not None:
             msg = f"{msg}; last error: {safe_error_message(last_err)}"
         events.record(
@@ -275,4 +289,4 @@ class ModelSelector:
             error=safe_error_message(last_err) if last_err else None,
             **note_detail,
         )
-        raise AllModelsExhaustedError(msg)
+        raise AllModelsExhaustedError(msg, http_status=status)

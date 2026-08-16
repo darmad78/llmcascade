@@ -194,6 +194,29 @@ async def test_embed_does_not_fallback_to_another_model():
 
 
 @pytest.mark.asyncio
+async def test_embed_budget_exhausted_is_429():
+    m = ModelConfig(
+        name="embed-a",
+        provider="gemini",
+        endpoint="https://example.com",
+        auth_env_var="GOOGLE_API_KEY",
+        limits=Limits(rpd=100, rpm=1, rps=1, tpm=100000, max_context=2048),
+        capabilities=["embed"],
+        priority=1,
+    )
+    lim = RateLimiter([m])
+    sel = ModelSelector([m], lim)
+
+    async def executor(model, prompt):
+        return LLMResponse(text="", model=model.name, embedding=[0.1], dimensions=1)
+
+    await sel.dispatch_with_fallback("a", "embed", executor, pinned_model="embed-a")
+    with pytest.raises(AllModelsExhaustedError, match="local budget exhausted") as exc:
+        await sel.dispatch_with_fallback("b", "embed", executor, pinned_model="embed-a")
+    assert exc.value.http_status == 429
+
+
+@pytest.mark.asyncio
 async def test_rate_cooldown_learns_retry_after():
     from llmcascade.cascade import ModelCooldownTracker
 

@@ -44,7 +44,7 @@ from llmcascade.api_auth import (
 )
 from llmcascade.auth_store import change_password, ensure_admin
 from llmcascade.event_log import events
-from llmcascade.exceptions import safe_error_message
+from llmcascade.exceptions import AllModelsExhaustedError, safe_error_message
 from llmcascade.metrics import log
 from llmcascade.provider_store import list_stored_providers, save_provider
 from llmcascade.queue_worker import RouterClient
@@ -363,6 +363,8 @@ async def _submit_inference(
         return await client.submit(prompt, capability, notes=notes, model=model, **params)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AllModelsExhaustedError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=str(exc)) from exc
     except Exception as exc:
         detail: dict[str, Any] = {"capability": capability}
         if notes and str(notes).strip():

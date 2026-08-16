@@ -101,6 +101,44 @@ class RateLimiter:
                 return False
             return True
 
+    async def try_reserve(self, model_name: str, tokens_estimate: int) -> bool:
+        """Atomically accept one request against rps/rpm/rpd/tpm, or reject."""
+        model = self._models.get(model_name)
+        if model is None:
+            return False
+        if self.cooldowns is not None and await self.cooldowns.is_cooling(model_name):
+            return False
+        cascade = self.gemini_cascade
+        if (
+            cascade is not None
+            and model.provider == "gemini"
+            and getattr(cascade, "logical_name", None) == model_name
+            and not await cascade.any_available()
+        ):
+            return False
+        async with self._lock(model_name):
+            now = time.monotonic()
+            limits = model.limits
+            if await self._count(model_name, "rps", now) >= limits.rps:
+                return False
+            if await self._count(model_name, "rpm", now) >= limits.rpm:
+                return False
+            if await self._count(model_name, "rpd", now) >= limits.rpd:
+                return False
+            if await self._count(model_name, "tpm", now) + tokens_estimate > limits.tpm:
+                return False
+            for metric, amount in (
+                ("rps", 1),
+                ("rpm", 1),
+                ("rpd", 1),
+                ("tpm", max(0, tokens_estimate)),
+            ):
+                key = f"{model_name}:{metric}"
+                events = _prune(await self._store.get_events(key), now, self.WINDOWS[metric])
+                events.append((now, amount))
+                await self._store.set_events(key, events)
+            return True
+
     async def record_usage(self, model_name: str, tokens_used: int) -> None:
         async with self._lock(model_name):
             now = time.monotonic()

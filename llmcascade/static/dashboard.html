@@ -459,6 +459,7 @@
       <label>Model
         <select id="embed-model"></select>
       </label>
+      <div id="embed-budget" class="chat-hint">rpm / rps left updates with the table.</div>
       <label>Prompt
         <textarea id="embed-prompt" rows="4">hello world</textarea>
       </label>
@@ -690,7 +691,11 @@
       }
     }
 
+    let embedBusy = false;
+    let lastEmbedModels = [];
+
     function fillEmbedModels(models, nextPick) {
+      lastEmbedModels = models || [];
       const sel = $("embed-model");
       if (!sel) return;
       const prev = sel.value;
@@ -700,6 +705,35 @@
       const names = models.map((m) => m.name);
       if (prev && names.includes(prev)) sel.value = prev;
       else if (nextPick && names.includes(nextPick.name)) sel.value = nextPick.name;
+      sel.dataset.ready = "1";
+      updateEmbedControl(models);
+    }
+
+    function updateEmbedControl(models) {
+      const sel = $("embed-model");
+      const btn = $("embed-send");
+      const line = $("embed-budget");
+      if (!sel || !btn || !line) return;
+      const m = (models || []).find((row) => row.name === sel.value);
+      if (!m) {
+        line.textContent = "No embedding model selected.";
+        btn.disabled = true;
+        return;
+      }
+      const b = m.budget || m.free_left || {};
+      const lim = m.limits || {};
+      const rps = b.rps;
+      const rpm = b.rpm;
+      const rpd = b.rpd;
+      line.textContent =
+        `left rps ${rps ?? "—"}/${lim.rps ?? "—"} · rpm ${rpm ?? "—"}/${lim.rpm ?? "—"} · rpd ${rpd ?? "—"}/${lim.rpd ?? "—"}`;
+      const blocked = (typeof rps === "number" && rps <= 0)
+        || (typeof rpm === "number" && rpm <= 0)
+        || (typeof rpd === "number" && rpd <= 0);
+      btn.disabled = embedBusy || blocked;
+      if (blocked) {
+        line.textContent += " — wait for the window (Gemini embed is 1 rps / 10 rpm).";
+      }
     }
 
     renderEventFilters();
@@ -844,6 +878,7 @@
         return;
       }
       btn.disabled = true;
+      embedBusy = true;
       out.className = "";
       out.textContent = "Running…";
       try {
@@ -873,8 +908,11 @@
         out.className = "is-err";
         out.textContent = err.message || String(err);
       }
-      btn.disabled = false;
+      embedBusy = false;
+      await refresh();
     });
+
+    $("embed-model").addEventListener("change", () => updateEmbedControl(lastEmbedModels));
   </script>
 </body>
 </html>
