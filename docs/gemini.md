@@ -2,7 +2,7 @@
 
 Gemini is a **provider family**, not a single model row. [`llmcascade/models.yaml`](../llmcascade/models.yaml) has one logical entry (`name: gemini`) with an ordered `cascade:` list. When the selector picks Gemini, llmcascade walks that list internally before raising to the outer free-provider fallback.
 
-**Order (default):** `gemini-3.6-flash` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash` → `gemini-2.0-flash-lite`. Set `GEMINI_MODEL` to prepend a preferred head. `gemini-3.*` IDs may be speculative/preview — a 404 permanently cools that ID only.
+**Order (default):** `gemini-3.6-flash` → `gemini-3-flash-preview` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash` → `gemini-2.0-flash-lite`. Set `GEMINI_MODEL` to prepend a preferred **chat** head. Set `GEMINI_EMBED_MODEL` for embeddings (embed IDs are not the chat cascade). `gemini-3.*` IDs may be speculative/preview — a 404 permanently cools that ID only.
 
 **Failure classification → cooldown (process-local, UTC):**
 

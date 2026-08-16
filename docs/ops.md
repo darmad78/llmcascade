@@ -41,6 +41,7 @@ Set `LLMCASCADE_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: h
 
 Two independent layers (API key vs admin cookie). Env vars, bcrypt hashes, `ALLOW_PAID`, `SECRET_KEY`, and cookie flags are documented in [`.env.example`](../.env.example).
 
+- **`POST /v1/complete` and `POST /v1/embed`:** Bearer / `X-API-Key` when `LLMCASCADE_PROFILE=production` (or `REQUIRE_AUTH=true`). The dashboard chat and Test embed use the **admin session + CSRF** instead of an API key.
 - First boot creates local admin `admin` / `admin` under `LLMCASCADE_DATA_DIR` (default `.llmcascade/`) and forces a password change.
 - Admin session is a JWT in an HttpOnly `SameSite=Lax` cookie. Password changes bump `pwd_version` and invalidate older JWTs.
 - Admin POSTs use double-submit CSRF. Login lockout after 5 failures is process-local.

@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .env
 .llmcascade/
+scripts/harden-production.sh
 .DS_Store
 dist/
 build/
