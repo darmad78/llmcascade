@@ -261,18 +261,17 @@ async def test_gemini_embed():
         )
     )
     model = ModelConfig(
-        name="gemini-embed",
+        name="gemini-embedding-001",
         provider="gemini",
         endpoint="https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent",
         auth_env_var="GOOGLE_API_KEY",
         limits=Limits(rpd=10, rpm=10, rps=10, tpm=1000, max_context=2048),
         capabilities=["embed"],
         priority=1,
-        cascade=["gemini-embedding-001", "text-embedding-004"],
     )
     async with httpx.AsyncClient() as client:
         adapter = GeminiAdapter(model, "secret", client=client)
-        resp = await adapter.embed_model("gemini-embedding-001", "doc")
+        resp = await adapter.embed("doc")
     assert resp.embedding == [1.0, 2.0]
     assert resp.dimensions == 2
 

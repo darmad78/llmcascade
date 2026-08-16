@@ -242,7 +242,16 @@
 
     <section id="embed">
       <h2>POST /v1/embed</h2>
-      <p class="lead">Embedding API. Same auth as <code>/v1/complete</code>. Body is <code>prompt</code> (the document). Vectors are returned in the response and are not stored.</p>
+      <p class="lead">Embedding API. Same auth as <code>/v1/complete</code>. Body is <code>prompt</code> plus required <code>model</code> (must stay the same for a corpus — embeddings are not cascaded). Vectors are returned and not stored.</p>
+      <div class="row">
+        <div class="meta">
+          <span class="pill http">422</span>
+          <span class="code">model field required</span>
+        </div>
+        <p class="title">Model not specified</p>
+        <p class="what">Embeddings live in a model-specific vector space. The router will not pick a substitute model.</p>
+        <p class="fix"><strong>Fix:</strong> Pass the registry model name, e.g. <code>gemini-embedding-001</code>.</p>
+      </div>
       <div class="row">
         <div class="meta">
           <span class="pill http">502</span>

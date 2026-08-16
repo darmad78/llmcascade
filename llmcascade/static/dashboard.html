@@ -410,23 +410,6 @@
         </table>
       </div>
     </section>
-    <section class="panel" id="gemini-embed-panel" hidden>
-      <h2>Gemini embed cascade</h2>
-      <div class="summary" id="gemini-embed-summary"></div>
-      <div style="overflow-x:auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Cascade model</th>
-              <th>State</th>
-              <th>Cooldown</th>
-              <th>Ready at (UTC)</th>
-            </tr>
-          </thead>
-          <tbody id="gemini-embed-rows"></tbody>
-        </table>
-      </div>
-    </section>
     <section class="logs">
       <div class="panel">
         <h2>Event log</h2>
@@ -660,7 +643,6 @@
         renderModels("models", chat, data.next_pick);
         renderModels("embed-models", embed, data.next_embed);
         renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
-        renderGemini(data.gemini_embed_cascade, "gemini-embed-panel", "gemini-embed-summary", "gemini-embed-rows");
         lastEvents = data.events || [];
         lastErrors = data.errors || [];
         renderLog($("events"), filterByType(lastEvents), "no events yet");

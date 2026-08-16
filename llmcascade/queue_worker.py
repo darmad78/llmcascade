@@ -37,6 +37,7 @@ class _Job:
     params: dict[str, Any]
     future: asyncio.Future[LLMResponse]
     notes: str | None = None
+    pinned_model: str | None = None
 
 
 class RouterClient:
@@ -50,7 +51,6 @@ class RouterClient:
         max_queue: int = 100,
         rate_limiter: RateLimiter | None = None,
         gemini_cascade: GeminiCascadeManager | None = None,
-        gemini_embed_cascade: GeminiCascadeManager | None = None,
         cooldowns: ModelCooldownTracker | None = None,
         stats: StatsStore | NullStatsStore | None = None,
         allow_empty: bool = False,
@@ -63,20 +63,15 @@ class RouterClient:
         self._models_path = models_path
         self._strategy = strategy
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
-        self.gemini_embed_cascade = gemini_embed_cascade or cascade_manager_from_registry(
-            self.registry, capability="embed"
-        )
         self.cooldowns = cooldowns or ModelCooldownTracker()
         self.rate_limiter = rate_limiter or RateLimiter(
             self.registry,
             gemini_cascade=self.gemini_cascade,
-            gemini_embed_cascade=self.gemini_embed_cascade,
             cooldowns=self.cooldowns,
         )
         if rate_limiter is not None:
             if self.gemini_cascade is not None:
                 self.rate_limiter.gemini_cascade = self.gemini_cascade
-            self.rate_limiter.gemini_embed_cascade = self.gemini_embed_cascade
             self.rate_limiter.cooldowns = self.cooldowns
         self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
         self.selector = ModelSelector(
@@ -120,10 +115,8 @@ class RouterClient:
         new_registry = load_registry(self._models_path, allow_empty=allow_empty)
         self.registry = new_registry
         self.gemini_cascade = cascade_manager_from_registry(new_registry)
-        self.gemini_embed_cascade = cascade_manager_from_registry(new_registry, capability="embed")
         self.rate_limiter.replace_models(new_registry)
         self.rate_limiter.gemini_cascade = self.gemini_cascade
-        self.rate_limiter.gemini_embed_cascade = self.gemini_embed_cascade
         self.rate_limiter.cooldowns = self.cooldowns
         self.selector.registry = list(new_registry)
         self.selector.rate_limiter = self.rate_limiter
@@ -139,21 +132,6 @@ class RouterClient:
         params.pop("notes", None)
         adapter = get_adapter(model, client=self._client)
         if capability == "embed":
-            if (
-                model.provider == "gemini"
-                and self.gemini_embed_cascade is not None
-                and isinstance(adapter, GeminiAdapter)
-                and (
-                    model.cascade
-                    or self.gemini_embed_cascade.logical_name == model.name
-                )
-            ):
-                async def embed_send(model_id: str, p: str) -> LLMResponse:
-                    return await adapter.embed_model(model_id, p, **params)
-
-                return await self.gemini_embed_cascade.run(
-                    embed_send, prompt, wait_for_gemini=wait_for_gemini
-                )
             return await adapter.embed(prompt, **params)
         if (
             model.provider == "gemini"
@@ -184,7 +162,11 @@ class RouterClient:
 
                 try:
                     result = await self.selector.dispatch_with_fallback(
-                        job.prompt, job.capability, executor, notes=job.notes
+                        job.prompt,
+                        job.capability,
+                        executor,
+                        notes=job.notes,
+                        pinned_model=job.pinned_model,
                     )
                     if not job.future.done():
                         job.future.set_result(result)
@@ -200,10 +182,13 @@ class RouterClient:
         capability: str = "chat",
         *,
         notes: str | None = None,
+        model: str | None = None,
         **params: Any,
     ) -> LLMResponse:
-        """Submit a completion. Additive: wait_for_gemini=False (default) falls through
-        to other free providers when the Gemini cascade is fully cooling.
+        """Submit a completion or embedding.
+
+        Chat may fall through providers. Embeddings must pin ``model`` (same
+        vector space); there is no cross-model cascade.
         """
         if not self._started:
             await self.start()
@@ -215,6 +200,9 @@ class RouterClient:
             params.pop("notes", None)
         if notes is not None:
             notes = str(notes).strip() or None
+        pin = (model or params.pop("model", None) or "").strip() or None
+        if capability == "embed" and not pin:
+            raise ValueError("embed requires model (same model for a corpus; no cascade)")
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[LLMResponse] = loop.create_future()
         job = _Job(
@@ -223,6 +211,7 @@ class RouterClient:
             params=params,
             future=fut,
             notes=notes,
+            pinned_model=pin,
         )
         try:
             self._queue.put_nowait(job)
@@ -240,8 +229,6 @@ class RouterClient:
         }
         if self.gemini_cascade is not None:
             out["gemini_cascade"] = await self.gemini_cascade.status()
-        if self.gemini_embed_cascade is not None:
-            out["gemini_embed_cascade"] = await self.gemini_embed_cascade.status()
         out["model_cooldowns"] = await self.cooldowns.status()
         return out
 
@@ -321,14 +308,6 @@ class RouterClient:
                 "requests_total": snap["requests_total"].get("gemini", 0),
                 "failures_total": snap["failures_total"].get("gemini", 0),
             }
-        gemini_embed = budgets.get("gemini_embed_cascade")
-        if isinstance(gemini_embed, dict):
-            gemini_embed = {
-                **gemini_embed,
-                "budget": budgets.get("gemini-embed", {}),
-                "requests_total": snap["requests_total"].get("gemini-embed", 0),
-                "failures_total": snap["failures_total"].get("gemini-embed", 0),
-            }
         return {
             "models": models,
             "next_pick": (
@@ -342,7 +321,6 @@ class RouterClient:
                 else None
             ),
             "gemini_cascade": gemini,
-            "gemini_embed_cascade": gemini_embed,
             "queue": {
                 "depth": self._queue.qsize(),
                 "maxsize": self._max_queue,

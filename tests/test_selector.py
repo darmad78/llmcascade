@@ -156,9 +156,41 @@ async def test_embed_capability_isolated():
             tokens_used=2,
         )
 
-    resp = await sel.dispatch_with_fallback("doc", "embed", executor)
+    resp = await sel.dispatch_with_fallback("doc", "embed", executor, pinned_model="embed-m")
     assert resp.embedding == [1.0]
     assert resp.model == "embed-m"
+
+
+@pytest.mark.asyncio
+async def test_embed_does_not_fallback_to_another_model():
+    a = ModelConfig(
+        name="embed-a",
+        provider="mistral",
+        endpoint="https://example.com",
+        auth_env_var="MISTRAL_API_KEY",
+        limits=Limits(rpd=100, rpm=100, rps=100, tpm=100000, max_context=4096),
+        capabilities=["embed"],
+        priority=1,
+    )
+    b = ModelConfig(
+        name="embed-b",
+        provider="jina",
+        endpoint="https://example.com",
+        auth_env_var="JINA_API_KEY",
+        limits=Limits(rpd=100, rpm=100, rps=100, tpm=100000, max_context=4096),
+        capabilities=["embed"],
+        priority=2,
+    )
+    sel = ModelSelector([a, b], RateLimiter([a, b]))
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        raise ProviderError("fail", status_code=500, retryable=False, model=model.name)
+
+    with pytest.raises(AllModelsExhaustedError, match="embed-a"):
+        await sel.dispatch_with_fallback("doc", "embed", executor, pinned_model="embed-a")
+    assert calls == ["embed-a"]
 
 
 @pytest.mark.asyncio

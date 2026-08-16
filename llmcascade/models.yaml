@@ -207,16 +207,12 @@ models:
     priority: 130
 
   # --- Embeddings (separate budgets; vectors returned, never stored) ---
-  - name: gemini-embed
+  - name: gemini-embedding-001
     provider: gemini
     endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent
     auth_env_var: GOOGLE_API_KEY
     free_tier_verified: true
-    free_tier_note: "Gemini Free embeddings · specific model IDs cascaded · ~1,500 RPD · ~10 RPM"
-    cascade:
-      - gemini-embedding-001
-      - text-embedding-004
-      - embedding-001
+    free_tier_note: "Gemini Free · gemini-embedding-001 only (no cascade; vector space is model-specific)"
     limits:
       rpd: 1500
       rpm: 10

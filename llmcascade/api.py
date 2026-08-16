@@ -86,6 +86,13 @@ class CompleteRequest(BaseModel):
     notes: str | None = None
 
 
+class EmbedRequest(BaseModel):
+    prompt: str
+    model: str = Field(min_length=1)
+    params: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = None
+
+
 class ProviderSaveBody(BaseModel):
     provider: str
     api_key: str | None = None
@@ -311,14 +318,25 @@ async def _authorize_inference(request: Request) -> None:
     raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
-async def _submit_inference(prompt: str, capability: str, notes: str | None, params: dict[str, Any]) -> LLMResponse:
+async def _submit_inference(
+    prompt: str,
+    capability: str,
+    notes: str | None,
+    params: dict[str, Any],
+    *,
+    model: str | None = None,
+) -> LLMResponse:
     client = _require_client()
     try:
-        return await client.submit(prompt, capability, notes=notes, **params)
+        return await client.submit(prompt, capability, notes=notes, model=model, **params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         detail: dict[str, Any] = {"capability": capability}
         if notes and str(notes).strip():
             detail["notes"] = str(notes).strip()
+        if model:
+            detail["model"] = model
         safe = safe_error_message(exc)
         events.record(safe, level="error", type="request_fail", **detail)
         raise HTTPException(status_code=502, detail=safe) from exc
@@ -331,9 +349,11 @@ async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
 
 
 @app.post("/v1/embed", response_model=LLMResponse)
-async def embed(request: Request, body: CompleteRequest) -> LLMResponse:
+async def embed(request: Request, body: EmbedRequest) -> LLMResponse:
     await _authorize_inference(request)
-    return await _submit_inference(body.prompt, "embed", body.notes, body.params)
+    return await _submit_inference(
+        body.prompt, "embed", body.notes, body.params, model=body.model
+    )
 
 
 @app.get("/v1/status")

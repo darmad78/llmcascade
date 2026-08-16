@@ -46,14 +46,12 @@ class RateLimiter:
         store: BudgetStore | None = None,
         *,
         gemini_cascade: Any | None = None,
-        gemini_embed_cascade: Any | None = None,
         cooldowns: Any | None = None,
     ) -> None:
         self._models = {m.name: m for m in models}
         self._store = store or InMemoryBudgetStore()
         self._locks: dict[str, asyncio.Lock] = {m.name: asyncio.Lock() for m in models}
         self.gemini_cascade = gemini_cascade
-        self.gemini_embed_cascade = gemini_embed_cascade
         self.cooldowns = cooldowns
 
     def replace_models(self, models: list[ModelConfig]) -> None:
@@ -81,15 +79,15 @@ class RateLimiter:
             return False
         if self.cooldowns is not None and await self.cooldowns.is_cooling(model_name):
             return False
-        # Gemini families: ineligible while every cascade member is cooling.
-        for cascade in (self.gemini_cascade, self.gemini_embed_cascade):
-            if (
-                cascade is not None
-                and model.provider == "gemini"
-                and getattr(cascade, "logical_name", None) == model_name
-                and not await cascade.any_available()
-            ):
-                return False
+        # Gemini family: ineligible while every cascade member is cooling.
+        cascade = self.gemini_cascade
+        if (
+            cascade is not None
+            and model.provider == "gemini"
+            and getattr(cascade, "logical_name", None) == model_name
+            and not await cascade.any_available()
+        ):
+            return False
         async with self._lock(model_name):
             now = time.monotonic()
             limits = model.limits

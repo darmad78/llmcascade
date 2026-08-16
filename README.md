@@ -60,7 +60,7 @@ If the server has `REQUIRE_AUTH=true` (or production profile), send `Authorizati
 | Method | Path | Notes |
 |--------|------|--------|
 | `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"? }` |
-| `POST` | `/v1/embed` | `{ "prompt", "params"?, "notes"? }` — returns `embedding`, never stored |
+| `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"? }` — pin one model; no cascade |
 | `GET` | `/v1/status` | Budgets + Gemini snapshot |
 | `GET` | `/v1/health` | Provider reachability |
 | `GET` | `/help` | Public error catalog (no login) |

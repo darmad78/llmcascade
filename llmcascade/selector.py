@@ -126,6 +126,8 @@ class ModelSelector:
         executor: Executor,
         *,
         notes: str | None = None,
+        pinned_model: str | None = None,
+        fallback: bool | None = None,
         **_params: Any,
     ) -> LLMResponse:
         tokens_est = estimate_tokens(prompt)
@@ -133,15 +135,29 @@ class ModelSelector:
         last_err: Exception | None = None
         note = (notes or "").strip() or None
         note_detail = {"notes": note} if note else {}
+        allow_fallback = capability != "embed" if fallback is None else fallback
+        pin = (pinned_model or "").strip() or None
 
         while True:
-            model = await self.pick(capability, tokens_est)
-            if model is None or model.name in tried:
-                # avoid infinite loop if only tried models remain eligible
-                remaining = [m for m in await self._eligible(capability, tokens_est) if m.name not in tried]
-                if not remaining:
+            if pin:
+                model = next((m for m in self.registry if m.name == pin), None)
+                if model is None:
                     break
-                model = remaining[0]
+                if capability not in model.capabilities or not getattr(model, "enabled", True):
+                    break
+                if pin in tried:
+                    break
+                if not await self.rate_limiter.can_proceed(model.name, tokens_est):
+                    break
+            else:
+                model = await self.pick(capability, tokens_est)
+                if model is None or model.name in tried:
+                    remaining = [
+                        m for m in await self._eligible(capability, tokens_est) if m.name not in tried
+                    ]
+                    if not remaining:
+                        break
+                    model = remaining[0]
             tried.add(model.name)
             try:
                 resp = await self._try_model(model, prompt, executor)
@@ -195,7 +211,9 @@ class ModelSelector:
                     notes=note,
                     capability=capability,
                 )
-                if self.cooldowns is not None and model.provider != "gemini":
+                if self.cooldowns is not None and not (
+                    model.provider == "gemini" and bool(model.cascade)
+                ):
                     # Gemini cascade owns per-member cooldowns; do not pin the logical
                     # family name to permanent from cascade-exhausted status codes.
                     kind = await self.cooldowns.apply_from_error(
@@ -238,16 +256,22 @@ class ModelSelector:
                     capability=capability,
                     **note_detail,
                 )
+                if not allow_fallback:
+                    break
                 continue
 
-        msg = f"no free-tier model succeeded for capability={capability!r}"
+        if pin:
+            msg = f"embedding model {pin!r} failed or is unavailable"
+        else:
+            msg = f"no free-tier model succeeded for capability={capability!r}"
         if last_err is not None:
             msg = f"{msg}; last error: {safe_error_message(last_err)}"
         events.record(
-            f"no free-tier model succeeded for capability={capability!r}",
+            msg.split(";")[0],
             level="error",
             type="request_fail",
             capability=capability,
+            model=pin,
             error=safe_error_message(last_err) if last_err else None,
             **note_detail,
         )

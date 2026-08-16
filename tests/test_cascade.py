@@ -228,11 +228,10 @@ async def test_rate_limiter_blocks_cooling_family():
     assert picked.name == "other"
 
 
-def test_cascade_manager_splits_chat_and_embed(monkeypatch):
+def test_cascade_manager_ignores_embed_rows(monkeypatch):
     from llmcascade.cascade import cascade_manager_from_registry
 
     monkeypatch.setenv("GEMINI_MODEL", "chat-only-id")
-    monkeypatch.delenv("GEMINI_EMBED_MODEL", raising=False)
     chat = ModelConfig(
         name="gemini",
         provider="gemini",
@@ -243,40 +242,15 @@ def test_cascade_manager_splits_chat_and_embed(monkeypatch):
         cascade=["flash-a", "flash-b"],
     )
     embed = ModelConfig(
-        name="gemini-embed",
+        name="gemini-embedding-001",
         provider="gemini",
         endpoint="https://example.com/{model}:embedContent",
         auth_env_var="GOOGLE_API_KEY",
         limits=Limits(rpd=10, rpm=10, rps=10, tpm=1000, max_context=2048),
         capabilities=["embed"],
-        cascade=["gemini-embedding-001", "text-embedding-004"],
     )
-    chat_mgr = cascade_manager_from_registry([chat, embed], capability="chat")
-    embed_mgr = cascade_manager_from_registry([chat, embed], capability="embed")
-    assert chat_mgr is not None and embed_mgr is not None
+    chat_mgr = cascade_manager_from_registry([embed, chat], capability="chat")
+    assert chat_mgr is not None
     assert chat_mgr.logical_name == "gemini"
-    assert embed_mgr.logical_name == "gemini-embed"
     assert chat_mgr.models[0] == "chat-only-id"
-    assert "chat-only-id" not in embed_mgr.models
-    assert embed_mgr.models == ["gemini-embedding-001", "text-embedding-004"]
-
-
-@pytest.mark.asyncio
-async def test_embed_cascade_tries_specific_model_ids():
-    mgr = GeminiCascadeManager(
-        ["gemini-embedding-001", "text-embedding-004"],
-        preferred_env=None,
-    )
-    mgr.bind_logical("gemini-embed")
-    tried: list[str] = []
-
-    async def send(model_id: str, prompt: str) -> LLMResponse:
-        tried.append(model_id)
-        if model_id == "gemini-embedding-001":
-            raise ProviderError("not found", status_code=404, retryable=False, model=model_id)
-        return LLMResponse(model=model_id, embedding=[0.2], dimensions=1, tokens_used=1)
-
-    resp = await mgr.run(send, "doc")
-    assert tried == ["gemini-embedding-001", "text-embedding-004"]
-    assert resp.model == "text-embedding-004"
-    assert resp.embedding == [0.2]
+    assert "gemini-embedding-001" not in chat_mgr.models

@@ -109,21 +109,23 @@ def test_hashed_api_key_ok(client: TestClient, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_embed_open_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    async def fake_submit(prompt, capability="chat", notes=None, **params):
+    async def fake_submit(prompt, capability="chat", notes=None, model=None, **params):
         from llmcascade.adapters.base import LLMResponse
 
         assert capability == "embed"
-        return LLMResponse(model="e", embedding=[0.1], dimensions=1, tokens_used=1, latency_ms=1.0)
+        assert model == "mistral-embed"
+        return LLMResponse(model=model, embedding=[0.1], dimensions=1, tokens_used=1, latency_ms=1.0)
 
     import llmcascade.api as api_mod
 
     monkeypatch.setattr(api_mod._client, "submit", fake_submit)
-    r = client.post("/v1/embed", json={"prompt": "doc", "notes": "app"})
+    missing = client.post("/v1/embed", json={"prompt": "doc"})
+    assert missing.status_code == 422
+    r = client.post("/v1/embed", json={"prompt": "doc", "model": "mistral-embed", "notes": "app"})
     assert r.status_code == 200
     body = r.json()
     assert body["embedding"] == [0.1]
-    assert body["dimensions"] == 1
-    assert body["text"] == ""
+    assert body["model"] == "mistral-embed"
 
 
 def test_bcrypt_entry_in_api_keys_env(monkeypatch: pytest.MonkeyPatch):
