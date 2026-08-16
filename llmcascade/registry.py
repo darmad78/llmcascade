@@ -33,6 +33,10 @@ _PROVIDER_AUTH: dict[str, str] = {
     "nvidia": "NVIDIA_NIM_API_KEY",
     "deepinfra": "DEEPINFRA_API_KEY",
     "jina": "JINA_API_KEY",
+    "voyage": "VOYAGE_API_KEY",
+    "nomic": "NOMIC_API_KEY",
+    "mixedbread": "MIXEDBREAD_API_KEY",
+    "siliconflow": "SILICONFLOW_API_KEY",
 }
 
 

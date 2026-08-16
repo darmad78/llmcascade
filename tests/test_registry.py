@@ -87,10 +87,17 @@ def test_cloudflare_needs_account_id(tmp_path: Path, monkeypatch: pytest.MonkeyP
         load_registry(path)
 
 
-def test_yaml_has_ten_unique_embed_models():
+def test_yaml_embed_catalog_is_wide_and_wired():
+    from llmcascade.adapters import _ADAPTERS
     from llmcascade.registry import _read_yaml_models, default_models_path
 
     models = _read_yaml_models(default_models_path())
-    names = [m.name for m in models if "embed" in m.capabilities]
-    assert len(names) == 10
-    assert len(set(names)) == 10
+    embeds = [m for m in models if "embed" in m.capabilities]
+    names = [m.name for m in embeds]
+    assert len(names) >= 25
+    assert len(set(names)) == len(names)
+    for m in embeds:
+        assert m.provider in _ADAPTERS
+    providers = {m.provider for m in embeds}
+    for extra in ("voyage", "nomic", "mixedbread", "siliconflow"):
+        assert extra in providers

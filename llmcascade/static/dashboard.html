@@ -320,6 +320,50 @@
       opacity: 0.45;
       cursor: not-allowed;
     }
+    body.area-llm .embed-test { display: none; }
+    body.area-embed .chat:not(.embed-test) { display: none; }
+    .embed-fields {
+      padding: 0.85rem 1rem;
+      display: grid;
+      gap: 0.65rem;
+    }
+    .embed-fields label {
+      display: grid;
+      gap: 0.3rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .embed-fields select,
+    .embed-fields textarea {
+      width: 100%;
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #0b1015;
+      color: var(--text);
+      font: inherit;
+      font-size: 0.85rem;
+    }
+    .embed-fields textarea { min-height: 4.5rem; resize: vertical; }
+    #embed-result {
+      margin: 0 1rem 0.85rem;
+      padding: 0.65rem 0.7rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #0b1015;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--muted);
+      max-height: 40vh;
+      overflow: auto;
+    }
+    #embed-result.is-ok { color: var(--ok); }
+    #embed-result.is-err { color: var(--bad); }
     @media (max-width: 960px) {
       .shell {
         grid-template-columns: 1fr;
@@ -333,7 +377,7 @@
     }
   </style>
 </head>
-<body>
+<body class="area-__AREA__">
   <header>
     <div class="header-left">
       <h1>llmcascade <span>status</span></h1>
@@ -405,6 +449,23 @@
     <form class="chat-form" id="chat-form">
       <textarea id="chat-input" rows="2" placeholder="Ask a question…" required></textarea>
       <button type="submit" id="chat-send">Send</button>
+    </form>
+  </aside>
+  <aside class="chat embed-test" aria-label="Test embedding">
+    <div class="chat-head">
+      <h2>Test embedding</h2>
+    </div>
+    <div class="embed-fields">
+      <label>Model
+        <select id="embed-model"></select>
+      </label>
+      <label>Prompt
+        <textarea id="embed-prompt" rows="4">hello world</textarea>
+      </label>
+    </div>
+    <pre id="embed-result">Pick a model with a key, then Test embed. Vectors are not stored.</pre>
+    <form class="chat-form" id="embed-form">
+      <button type="submit" id="embed-send">Test embed</button>
     </form>
   </aside>
   </div>
@@ -612,6 +673,7 @@
         const data = await res.json();
         const models = data.models || [];
         renderModels("models", models, data.next_pick);
+        fillEmbedModels(models, data.next_pick);
         renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
         lastEvents = data.events || [];
         lastErrors = data.errors || [];
@@ -626,6 +688,18 @@
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
       }
+    }
+
+    function fillEmbedModels(models, nextPick) {
+      const sel = $("embed-model");
+      if (!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = models.map((m) =>
+        `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`
+      ).join("");
+      const names = models.map((m) => m.name);
+      if (prev && names.includes(prev)) sel.value = prev;
+      else if (nextPick && names.includes(nextPick.name)) sel.value = nextPick.name;
     }
 
     renderEventFilters();
@@ -752,6 +826,55 @@
 
     loadChat();
     renderChat();
+
+    $("embed-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const model = $("embed-model").value;
+      const prompt = $("embed-prompt").value.trim();
+      const out = $("embed-result");
+      const btn = $("embed-send");
+      if (!model) {
+        out.className = "is-err";
+        out.textContent = "No embedding model available. Add a key on Embeddings → Providers.";
+        return;
+      }
+      if (!prompt) {
+        out.className = "is-err";
+        out.textContent = "Enter a prompt.";
+        return;
+      }
+      btn.disabled = true;
+      out.className = "";
+      out.textContent = "Running…";
+      try {
+        const res = await fetch("/v1/embed", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken(),
+          },
+          body: JSON.stringify({ prompt, model, notes: "dashboard-embed-test" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          out.className = "is-err";
+          out.textContent = String(data.detail || `HTTP ${res.status}`);
+        } else {
+          const vec = Array.isArray(data.embedding) ? data.embedding : [];
+          const preview = vec.slice(0, 8).map((n) => Number(n).toFixed(5)).join(", ");
+          const more = vec.length > 8 ? ", …" : "";
+          out.className = "is-ok";
+          out.textContent =
+            `ok · ${data.model} · ${data.dimensions || vec.length} dims · ${Math.round(data.latency_ms || 0)}ms\n` +
+            `[${preview}${more}]\n(vector not stored)`;
+        }
+      } catch (err) {
+        out.className = "is-err";
+        out.textContent = err.message || String(err);
+      }
+      btn.disabled = false;
+    });
   </script>
 </body>
 </html>

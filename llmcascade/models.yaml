@@ -212,7 +212,7 @@ models:
     endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent
     auth_env_var: GOOGLE_API_KEY
     free_tier_verified: true
-    free_tier_note: "Gemini Free · gemini-embedding-001 only (no cascade; vector space is model-specific)"
+    free_tier_note: "Gemini Free · gemini-embedding-001 (no cascade; vector space is model-specific)"
     limits:
       rpd: 1500
       rpm: 10
@@ -358,3 +358,263 @@ models:
       max_context: 8192
     capabilities: [embed]
     priority: 100
+
+  - name: text-embedding-004
+    provider: gemini
+    endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent
+    auth_env_var: GOOGLE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Gemini Free · text-embedding-004 (older; separate vector space from gemini-embedding-001)"
+    limits:
+      rpd: 1500
+      rpm: 10
+      rps: 1
+      tpm: 250000
+      max_context: 2048
+    capabilities: [embed]
+    priority: 110
+
+  - name: embed-multilingual-v3.0
+    provider: cohere
+    endpoint: https://api.cohere.com/v2/embed
+    auth_env_var: COHERE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Cohere trial/free multilingual embed · ~20 RPM"
+    limits:
+      rpd: 1000
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 512
+    capabilities: [embed]
+    priority: 120
+
+  - name: embed-english-light-v3.0
+    provider: cohere
+    endpoint: https://api.cohere.com/v2/embed
+    auth_env_var: COHERE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Cohere trial/free light embed · smaller dims · ~20 RPM"
+    limits:
+      rpd: 1000
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 512
+    capabilities: [embed]
+    priority: 130
+
+  - name: BAAI/bge-small-en-v1.5
+    provider: huggingface
+    endpoint: https://router.huggingface.co/v1/embeddings
+    auth_env_var: HF_TOKEN
+    free_tier_verified: false
+    free_tier_note: "HF free inference is credit-based — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 50000
+      max_context: 512
+    capabilities: [embed]
+    priority: 140
+
+  - name: intfloat/e5-small-v2
+    provider: huggingface
+    endpoint: https://router.huggingface.co/v1/embeddings
+    auth_env_var: HF_TOKEN
+    free_tier_verified: false
+    free_tier_note: "HF free inference is credit-based — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 50000
+      max_context: 512
+    capabilities: [embed]
+    priority: 150
+
+  - name: "@cf/baai/bge-small-en-v1.5"
+    provider: cloudflare
+    endpoint: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/baai/bge-small-en-v1.5
+    auth_env_var: CLOUDFLARE_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Workers AI embeddings use neurons/day — RPD counter unverified"
+    limits:
+      rpd: 300
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 512
+    capabilities: [embed]
+    priority: 160
+
+  - name: "@cf/baai/bge-m3"
+    provider: cloudflare
+    endpoint: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/baai/bge-m3
+    auth_env_var: CLOUDFLARE_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Workers AI bge-m3 multilingual — neurons/day, counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 80000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 170
+
+  - name: together/bge-large-en-v1.5
+    provider: together
+    api_model: BAAI/bge-large-en-v1.5
+    endpoint: https://api.together.xyz/v1/embeddings
+    auth_env_var: TOGETHER_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Together embeddings · reduced free RPM — counters unverified"
+    limits:
+      rpd: 100
+      rpm: 10
+      rps: 1
+      tpm: 60000
+      max_context: 512
+    capabilities: [embed]
+    priority: 180
+
+  - name: nvidia/llama-3.2-nv-embedqa-1b-v2
+    provider: nvidia
+    endpoint: https://integrate.api.nvidia.com/v1/embeddings
+    auth_env_var: NVIDIA_NIM_API_KEY
+    free_tier_verified: true
+    free_tier_note: "NVIDIA NIM free embed · ~40 RPM (local RPD is soft)"
+    limits:
+      rpd: 1000
+      rpm: 40
+      rps: 1
+      tpm: 40000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 190
+
+  - name: deepinfra/bge-m3
+    provider: deepinfra
+    api_model: BAAI/bge-m3
+    endpoint: https://api.deepinfra.com/v1/openai/embeddings
+    auth_env_var: DEEPINFRA_API_KEY
+    free_tier_verified: false
+    free_tier_note: "DeepInfra free credits rotate — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 60
+      rps: 2
+      tpm: 60000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 200
+
+  - name: nvidia/nemotron-3-embed-1b:free
+    provider: openrouter
+    endpoint: https://openrouter.ai/api/v1/embeddings
+    auth_env_var: OPENROUTER_API_KEY
+    free_tier_verified: true
+    free_tier_note: "OpenRouter :free embeddings · 50 RPD (1,000 if ≥$10 credits) · 20 RPM"
+    limits:
+      rpd: 50
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 32768
+    capabilities: [embed]
+    priority: 210
+
+  - name: jina-embeddings-v2-base-en
+    provider: jina
+    endpoint: https://api.jina.ai/v1/embeddings
+    auth_env_var: JINA_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Jina free · embeddings-v2-base-en · ~1M tokens"
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 100000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 220
+
+  - name: voyage-3-lite
+    provider: voyage
+    endpoint: https://api.voyageai.com/v1/embeddings
+    auth_env_var: VOYAGE_API_KEY
+    free_tier_verified: true
+    free_tier_note: "Voyage free/trial · voyage-3-lite (token grant / trial credits)"
+    limits:
+      rpd: 1000
+      rpm: 30
+      rps: 1
+      tpm: 300000
+      max_context: 32000
+    capabilities: [embed]
+    priority: 230
+
+  - name: voyage-code-3
+    provider: voyage
+    endpoint: https://api.voyageai.com/v1/embeddings
+    auth_env_var: VOYAGE_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Voyage trial credits · code retrieval embed — counters unverified"
+    limits:
+      rpd: 500
+      rpm: 20
+      rps: 1
+      tpm: 120000
+      max_context: 32000
+    capabilities: [embed]
+    priority: 240
+
+  - name: nomic-embed-text-v1.5
+    provider: nomic
+    endpoint: https://api.nomic.ai/v1/embeddings
+    auth_env_var: NOMIC_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Nomic Atlas free/starter credits — counters unverified"
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 1000000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 250
+
+  - name: mxbai-embed-large-v1
+    provider: mixedbread
+    api_model: mixedbread-ai/mxbai-embed-large-v1
+    endpoint: https://api.mixedbread.com/v1/embeddings
+    auth_env_var: MIXEDBREAD_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Mixedbread free/trial credits — counters unverified"
+    limits:
+      rpd: 500
+      rpm: 30
+      rps: 1
+      tpm: 100000
+      max_context: 512
+    capabilities: [embed]
+    priority: 260
+
+  - name: siliconflow/bge-m3
+    provider: siliconflow
+    api_model: BAAI/bge-m3
+    endpoint: https://api.siliconflow.cn/v1/embeddings
+    auth_env_var: SILICONFLOW_API_KEY
+    free_tier_verified: false
+    free_tier_note: "SiliconFlow free quota · BAAI/bge-m3 — counters unverified"
+    limits:
+      rpd: 1000
+      rpm: 60
+      rps: 2
+      tpm: 200000
+      max_context: 8192
+    capabilities: [embed]
+    priority: 270
+

@@ -162,3 +162,19 @@ class DeepInfraAdapter(OpenAICompatibleAdapter):
 
 class JinaAdapter(OpenAICompatibleAdapter):
     pass
+
+
+class VoyageAdapter(OpenAICompatibleAdapter):
+    pass
+
+
+class NomicAdapter(OpenAICompatibleAdapter):
+    pass
+
+
+class MixedbreadAdapter(OpenAICompatibleAdapter):
+    pass
+
+
+class SiliconFlowAdapter(OpenAICompatibleAdapter):
+    pass

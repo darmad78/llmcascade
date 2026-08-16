@@ -88,6 +88,10 @@ Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats`, `/v1/events`, `/v1/errors
 | NVIDIA NIM | `NVIDIA_NIM_API_KEY` |
 | DeepInfra | `DEEPINFRA_API_KEY` |
 | Jina | `JINA_API_KEY` |
+| Voyage | `VOYAGE_API_KEY` |
+| Nomic | `NOMIC_API_KEY` |
+| Mixedbread | `MIXEDBREAD_API_KEY` |
+| SiliconFlow | `SILICONFLOW_API_KEY` |
 
 IDs and free-tier limits: [`llmcascade/models.yaml`](llmcascade/models.yaml). Missing keys skip that provider. Env vars **override** UI-stored keys.
 

@@ -296,10 +296,20 @@ def _inject_page(html: str, *, area: str, active: str) -> str:
     return html
 
 
-def _html_file(path: Path, *, area: str, active: str) -> HTMLResponse:
+def _html_file(
+    path: Path, *, area: str, active: str, request: Request | None = None
+) -> HTMLResponse:
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"{path.name} missing")
-    return HTMLResponse(_inject_page(path.read_text(encoding="utf-8"), area=area, active=active))
+    resp = HTMLResponse(_inject_page(path.read_text(encoding="utf-8"), area=area, active=active))
+    if request is not None and not request.cookies.get(CSRF_COOKIE):
+        token = new_csrf_token()
+        resp.set_cookie(
+            CSRF_COOKIE,
+            token,
+            **csrf_cookie_kwargs(secure=cookie_secure(_is_https(request))),
+        )
+    return resp
 
 
 def _dashboard_session_ok(request: Request) -> bool:
@@ -431,13 +441,13 @@ async def dashboard_data(
 
 
 @app.get("/dashboard")
-async def dashboard_page() -> HTMLResponse:
-    return _html_file(_DASHBOARD_HTML, area="llm", active="status")
+async def dashboard_page(request: Request) -> HTMLResponse:
+    return _html_file(_DASHBOARD_HTML, area="llm", active="status", request=request)
 
 
 @app.get("/embed/dashboard")
-async def embed_dashboard_page() -> HTMLResponse:
-    return _html_file(_DASHBOARD_HTML, area="embed", active="status")
+async def embed_dashboard_page(request: Request) -> HTMLResponse:
+    return _html_file(_DASHBOARD_HTML, area="embed", active="status", request=request)
 
 
 @app.get("/stats")

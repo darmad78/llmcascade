@@ -112,6 +112,8 @@ def test_embed_pages_after_login(client: TestClient):
     assert "href=\"/embed/stats\"" in dash.text
     assert "Embedding models" in dash.text
     assert "const CAPABILITY = \"embed\"" in dash.text
+    assert "Test embed" in dash.text
+    assert "/v1/embed" in dash.text
     assert "Embedding models" in dash.text
 
     stats = client.get("/embed/stats")
