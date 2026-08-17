@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from llmcascade.ui import filter_dashboard, nav_html
+from llmcascade.ui import filter_dashboard, filter_stats_snapshot, nav_html
 
 
 def test_nav_html_embed_prefix():
@@ -17,6 +17,42 @@ def test_nav_html_embed_prefix():
     assert 'href="/embed/providers"' in html
     assert 'href="/embed/help"' in html
     assert "Embeddings" in html
+    assert "nav-stack" in html
+    assert html.find("area-nav") < html.find("page-nav")
+
+
+def test_filter_stats_infers_embed_without_capability_field():
+    snap = {
+        "totals": {
+            "models": [
+                {"name": "gemini-embedding-001", "provider": "gemini", "requests": 7, "failures": 0,
+                 "success_rate": 1, "avg_latency_ms": 10, "max_latency_ms": 12, "tokens_sum": 20},
+                {"name": "llama-3.3-70b-versatile", "provider": "groq", "capability": "chat", "requests": 3,
+                 "failures": 0, "success_rate": 1, "avg_latency_ms": 5, "max_latency_ms": 5, "tokens_sum": 9},
+            ],
+            "providers": [],
+            "notes": [],
+            "capabilities": [],
+        },
+        "series": {
+            "hourly": [{
+                "bucket": "2026-08-16T22:00:00Z",
+                "by_model": {
+                    "gemini-embedding-001": {"provider": "gemini", "requests": 7, "failures": 0,
+                                             "avg_latency_ms": 10, "max_latency_ms": 12, "tokens_sum": 20},
+                },
+                "by_provider": {},
+                "by_notes": {},
+                "by_note_model": {},
+                "by_capability": {},
+            }],
+            "daily": [],
+        },
+    }
+    out = filter_stats_snapshot(snap, "embed")
+    assert [m["name"] for m in out["totals"]["models"]] == ["gemini-embedding-001"]
+    assert out["series"]["hourly"][0]["requests"] == 7
+    assert "embed" in out["series"]["hourly"][0]["by_capability"]
 
 
 def test_filter_dashboard_keeps_embed_models_only():

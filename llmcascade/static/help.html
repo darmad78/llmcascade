@@ -36,9 +36,10 @@
       padding: 1.25rem 1.5rem 0.85rem;
       border-bottom: 1px solid var(--line);
     }
-    .header-left { display: flex; flex-wrap: wrap; align-items: center; gap: 0.85rem 1.25rem; }
+    .header-left { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.85rem 1.25rem; }
     h1 { margin: 0; font-size: 1.35rem; font-weight: 650; }
     h1 span { color: var(--muted); font-weight: 500; }
+    .nav-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 0.45rem; }
     .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     body.area-embed .help-llm { display: none; }
     body.area-llm .help-embed { display: none; }

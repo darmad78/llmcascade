@@ -36,13 +36,15 @@ def nav_html(area: str, active: str) -> str:
     for key, href, label in items:
         cls = "nav-btn is-active" if key == active else "nav-btn"
         sub.append(f'<a class="{cls}" href="{href}">{label}</a>')
-    return f"""<nav class="area-nav" aria-label="Area">
+    return f"""<div class="nav-stack">
+      <nav class="area-nav" aria-label="Area">
         <a class="{llm_cls}" href="/dashboard">LLM</a>
         <a class="{embed_cls}" href="/embed/dashboard">Embeddings</a>
       </nav>
       <nav class="page-nav" aria-label="Pages">
         {"".join(sub)}
-      </nav>"""
+      </nav>
+    </div>"""
 
 
 def filter_dashboard(data: dict[str, Any], capability: str) -> dict[str, Any]:
@@ -86,18 +88,44 @@ def _row_from_parts(
     }
 
 
-def _cap_of(row: dict[str, Any]) -> str:
-    return str(row.get("capability") or "chat")
+def _caps_by_model_name() -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        from llmcascade.registry import list_all_models
+
+        for m in list_all_models():
+            caps = m.capabilities or []
+            if "embed" in caps and "chat" not in caps:
+                out[m.name] = "embed"
+            elif "chat" in caps:
+                out[m.name] = "chat"
+            elif "embed" in caps:
+                out[m.name] = "embed"
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
-def _filter_series(series: list[dict[str, Any]], capability: str) -> list[dict[str, Any]]:
+def _row_cap(row: dict[str, Any], name: str | None = None, caps: dict[str, str] | None = None) -> str:
+    cap = row.get("capability")
+    if cap:
+        return str(cap)
+    if name and caps and name in caps:
+        return caps[name]
+    if name and ("embed" in name.lower() or "embedding" in name.lower()):
+        return "embed"
+    return "chat"
+
+
+def _filter_series(series: list[dict[str, Any]], capability: str, caps: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    caps = caps or {}
     out: list[dict[str, Any]] = []
     for raw in series:
         bucket = dict(raw)
         by_model = {
             name: row
             for name, row in (bucket.get("by_model") or {}).items()
-            if _cap_of(row) == capability
+            if _row_cap(row, name, caps) == capability
         }
         by_provider: dict[str, dict[str, Any]] = {}
         for row in by_model.values():
@@ -132,7 +160,7 @@ def _filter_series(series: list[dict[str, Any]], capability: str) -> list[dict[s
             }
         nm: dict[str, Any] = {}
         for note, models in (bucket.get("by_note_model") or {}).items():
-            kept = {n: r for n, r in (models or {}).items() if _cap_of(r) == capability}
+            kept = {n: r for n, r in (models or {}).items() if _row_cap(r, n, caps) == capability}
             if kept:
                 nm[note] = kept
         by_notes: dict[str, Any] = {}
@@ -146,6 +174,15 @@ def _filter_series(series: list[dict[str, Any]], capability: str) -> list[dict[s
                 requests=req, failures=fail, latency_sum=lat, max_latency_ms=mx, tokens_sum=tok
             )
         cap_row = (bucket.get("by_capability") or {}).get(capability)
+        if not cap_row and by_model:
+            req = sum(int(r.get("requests") or 0) for r in by_model.values())
+            fail = sum(int(r.get("failures") or 0) for r in by_model.values())
+            lat = sum(float(r.get("avg_latency_ms") or 0) * int(r.get("requests") or 0) for r in by_model.values())
+            tok = sum(int(r.get("tokens_sum") or 0) for r in by_model.values())
+            mx = max((float(r.get("max_latency_ms") or 0) for r in by_model.values()), default=0.0)
+            cap_row = _row_from_parts(
+                requests=req, failures=fail, latency_sum=lat, max_latency_ms=mx, tokens_sum=tok
+            )
         bucket["by_model"] = by_model
         bucket["by_provider"] = finalized
         bucket["by_note_model"] = nm
@@ -158,8 +195,13 @@ def _filter_series(series: list[dict[str, Any]], capability: str) -> list[dict[s
 
 
 def filter_stats_snapshot(snap: dict[str, Any], capability: str) -> dict[str, Any]:
+    caps_map = _caps_by_model_name()
     totals = dict(snap.get("totals") or {})
-    models = [m for m in (totals.get("models") or []) if _cap_of(m) == capability]
+    models = [
+        m
+        for m in (totals.get("models") or [])
+        if _row_cap(m, m.get("name"), caps_map) == capability
+    ]
     providers_map: dict[str, dict[str, float]] = {}
     for m in models:
         name = m.get("provider") or "unknown"
@@ -185,8 +227,8 @@ def filter_stats_snapshot(snap: dict[str, Any], capability: str) -> dict[str, An
     ]
     providers.sort(key=lambda r: r["requests"], reverse=True)
     caps = [c for c in (totals.get("capabilities") or []) if c.get("name") == capability]
-    hourly = _filter_series((snap.get("series") or {}).get("hourly") or [], capability)
-    daily = _filter_series((snap.get("series") or {}).get("daily") or [], capability)
+    hourly = _filter_series((snap.get("series") or {}).get("hourly") or [], capability, caps_map)
+    daily = _filter_series((snap.get("series") or {}).get("daily") or [], capability, caps_map)
     notes_map: dict[str, dict[str, float]] = {}
     for bucket in hourly + daily:
         for note, row in (bucket.get("by_notes") or {}).items():

@@ -42,7 +42,7 @@
     .header-left {
       display: flex;
       flex-wrap: wrap;
-      align-items: center;
+      align-items: flex-start;
       gap: 0.85rem 1.25rem;
     }
     h1 {
@@ -52,6 +52,7 @@
       letter-spacing: -0.02em;
     }
     h1 span { color: var(--muted); font-weight: 500; }
+    .nav-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 0.45rem; }
     .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     .nav-btn {
       display: inline-block;
