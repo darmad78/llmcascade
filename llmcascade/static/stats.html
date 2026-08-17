@@ -500,6 +500,7 @@
     }
 
     function sparkline(ctx, values, stroke) {
+      if (typeof Chart === "undefined") return null;
       return new Chart(ctx, {
         type: "line",
         data: {
@@ -771,10 +772,12 @@
 
     function renderKpis(data) {
       const notes = rangeNoteTotals(data);
-      const req = notes.reduce((a, n) => a + n.requests, 0);
-      const fail = notes.reduce((a, n) => a + n.failures, 0);
-      const latSum = notes.reduce((a, n) => a + n.avg_latency_ms * n.requests, 0);
-      const tok = notes.reduce((a, n) => a + n.tokens_sum, 0);
+      const models = data.totals.models || [];
+      const src = notes.length ? notes : models;
+      const req = src.reduce((a, n) => a + (n.requests || 0), 0);
+      const fail = src.reduce((a, n) => a + (n.failures || 0), 0);
+      const latSum = src.reduce((a, n) => a + (n.avg_latency_ms || 0) * (n.requests || 0), 0);
+      const tok = src.reduce((a, n) => a + (n.tokens_sum || 0), 0);
       $("kpi-req").textContent = fmtNum(req);
       $("kpi-fail").textContent = fmtNum(fail);
       $("kpi-ok").textContent = req ? pct((req - fail) / req) : "—";
@@ -950,9 +953,9 @@
         $("chart-fail-model-day"), fails.labels, fails.datasets, { stacked: true },
       );
 
-      const hourly = modelRequestSeries(data, "hourly");
+      const hourlyModels = modelRequestSeries(data, "hourly");
       destroyChart("hourly");
-      charts.hourly = lineChart($("chart-hourly-model"), hourly.labels, hourly.datasets, { stacked: true });
+      charts.hourly = lineChart($("chart-hourly-model"), hourlyModels.labels, hourlyModels.datasets, { stacked: true });
 
       const daily = providerSeries(data);
       destroyChart("daily");

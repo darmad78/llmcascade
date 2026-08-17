@@ -186,7 +186,7 @@ def _filter_series(series: list[dict[str, Any]], capability: str, caps: dict[str
         bucket["by_model"] = by_model
         bucket["by_provider"] = finalized
         bucket["by_note_model"] = nm
-        bucket["by_notes"] = by_notes
+        bucket["by_notes"] = by_notes if nm else (bucket.get("by_notes") or {})
         bucket["by_capability"] = {capability: cap_row} if cap_row else {}
         bucket["requests"] = sum(int(r.get("requests") or 0) for r in by_model.values())
         bucket["failures"] = sum(int(r.get("failures") or 0) for r in by_model.values())
