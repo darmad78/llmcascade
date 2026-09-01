@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from llmcascade.adapters.base import LLMResponse
 from llmcascade.exceptions import AllModelsExhaustedError, ProviderError, safe_error_message
+from llmcascade.failures import classify_recorded_failure
 from llmcascade.event_log import events
 from llmcascade.metrics import log, metrics
 from llmcascade.rate_limiter import RateLimiter
@@ -119,6 +120,11 @@ class ModelSelector:
                 return await executor(model, prompt)
             raise
 
+    def _with_skipped(self, resp: LLMResponse, skipped: list[dict[str, str]]) -> LLMResponse:
+        if not skipped:
+            return resp
+        return resp.model_copy(update={"skipped_models": skipped})
+
     async def dispatch_with_fallback(
         self,
         prompt: str,
@@ -128,6 +134,8 @@ class ModelSelector:
         notes: str | None = None,
         pinned_model: str | None = None,
         fallback: bool | None = None,
+        failover_models: list[str] | None = None,
+        include_free_cascade: bool | None = None,
         **_params: Any,
     ) -> LLMResponse:
         tokens_est = estimate_tokens(prompt)
@@ -138,133 +146,176 @@ class ModelSelector:
         allow_fallback = capability != "embed" if fallback is None else fallback
         pin = (pinned_model or "").strip() or None
         budget_blocked = False
+        skipped_models: list[dict[str, str]] = []
 
-        while True:
-            if pin:
-                model = next((m for m in self.registry if m.name == pin), None)
-                if model is None:
-                    break
-                if capability not in model.capabilities or not getattr(model, "enabled", True):
-                    break
-                if pin in tried:
-                    break
-                if not await self.rate_limiter.try_reserve(model.name, tokens_est):
-                    budget_blocked = True
-                    break
-            else:
-                model = await self.pick(capability, tokens_est)
-                if model is None or model.name in tried:
-                    remaining = [
-                        m for m in await self._eligible(capability, tokens_est) if m.name not in tried
-                    ]
-                    if not remaining:
-                        break
-                    model = remaining[0]
-                if not await self.rate_limiter.try_reserve(model.name, tokens_est):
-                    tried.add(model.name)
+        preferred: list[str] = []
+        if pin:
+            seen: set[str] = set()
+            extra = failover_models or [] if capability != "embed" else []
+            for name in [pin, *extra]:
+                n = (name or "").strip()
+                if not n or n in seen:
                     continue
+                seen.add(n)
+                preferred.append(n)
+
+        if pin and capability != "embed":
+            include_free = bool(include_free_cascade)
+        elif capability == "embed":
+            include_free = False
+        else:
+            include_free = True
+
+        async def succeed(model: ModelConfig, resp: LLMResponse) -> LLMResponse:
+            used = resp.tokens_used or tokens_est
+            metrics.record_success(model.name, capability)
+            await self.stats.record(
+                model=model.name,
+                provider=model.provider,
+                success=True,
+                latency_ms=resp.latency_ms,
+                tokens_used=used,
+                notes=note,
+                capability=capability,
+            )
+            log.info(
+                "request ok",
+                extra={
+                    "model_used": model.name,
+                    "latency_ms": resp.latency_ms,
+                    "success": True,
+                    "tokens_used": used,
+                    "provider": model.provider,
+                    "capability": capability,
+                    "dimensions": resp.dimensions,
+                    **note_detail,
+                },
+            )
+            events.record(
+                "request ok",
+                level="info",
+                type="request_ok",
+                model=model.name,
+                provider=model.provider,
+                success=True,
+                latency_ms=resp.latency_ms,
+                tokens_used=used,
+                capability=capability,
+                **note_detail,
+            )
+            return self._with_skipped(resp, skipped_models)
+
+        async def fail(model: ModelConfig, exc: ProviderError) -> None:
+            nonlocal last_err
+            last_err = exc
+            metrics.record_failure(model.name, capability)
+            await self.stats.record(
+                model=model.name,
+                provider=model.provider,
+                success=False,
+                latency_ms=0,
+                tokens_used=0,
+                notes=note,
+                capability=capability,
+            )
+            self.stats.enqueue_failure(
+                model=model.name,
+                provider=model.provider,
+                capability=capability,
+                notes=note,
+                exc=exc,
+            )
+            if self.cooldowns is not None and not (
+                model.provider == "gemini" and bool(model.cascade)
+            ):
+                kind = await self.cooldowns.apply_from_error(
+                    model.name,
+                    status_code=exc.status_code,
+                    body=str(exc),
+                    headers=getattr(exc, "headers", None),
+                )
+                if kind is not None:
+                    events.record(
+                        f"cooldown [{kind}]",
+                        level="warn",
+                        type="cooldown",
+                        model=model.name,
+                        provider=model.provider,
+                        error=safe_error_message(exc),
+                        capability=capability,
+                        **note_detail,
+                    )
+            log.info(
+                "request fail",
+                extra={
+                    "model_used": model.name,
+                    "latency_ms": 0,
+                    "success": False,
+                    "tokens_used": 0,
+                    "provider": model.provider,
+                    "capability": capability,
+                    **note_detail,
+                },
+            )
+            events.record(
+                "request fail",
+                level="error",
+                type="request_fail",
+                model=model.name,
+                provider=model.provider,
+                success=False,
+                error=safe_error_message(exc),
+                kind=classify_recorded_failure(exc.status_code, str(exc)),
+                capability=capability,
+                **note_detail,
+            )
+
+        for name in preferred:
+            model = next((m for m in self.registry if m.name == name), None)
+            if model is None:
+                skipped_models.append({"model": name, "reason": "unknown"})
+                continue
+            if capability not in model.capabilities or not getattr(model, "enabled", True):
+                skipped_models.append({"model": name, "reason": "unavailable"})
+                continue
+            if name in tried:
+                continue
+            if not await self.rate_limiter.try_reserve(model.name, tokens_est):
+                budget_blocked = True
+                if capability == "embed":
+                    break
+                skipped_models.append({"model": name, "reason": "budget"})
+                continue
             tried.add(model.name)
             try:
-                resp = await self._try_model(model, prompt, executor)
-                used = resp.tokens_used or tokens_est
-                metrics.record_success(model.name, capability)
-                await self.stats.record(
-                    model=model.name,
-                    provider=model.provider,
-                    success=True,
-                    latency_ms=resp.latency_ms,
-                    tokens_used=used,
-                    notes=note,
-                    capability=capability,
-                )
-                log.info(
-                    "request ok",
-                    extra={
-                        "model_used": model.name,
-                        "latency_ms": resp.latency_ms,
-                        "success": True,
-                        "tokens_used": used,
-                        "provider": model.provider,
-                        "capability": capability,
-                        "dimensions": resp.dimensions,
-                        **note_detail,
-                    },
-                )
-                events.record(
-                    "request ok",
-                    level="info",
-                    type="request_ok",
-                    model=model.name,
-                    provider=model.provider,
-                    success=True,
-                    latency_ms=resp.latency_ms,
-                    tokens_used=used,
-                    capability=capability,
-                    **note_detail,
-                )
-                return resp
+                return await succeed(model, await self._try_model(model, prompt, executor))
             except ProviderError as exc:
-                last_err = exc
-                metrics.record_failure(model.name, capability)
-                await self.stats.record(
-                    model=model.name,
-                    provider=model.provider,
-                    success=False,
-                    latency_ms=0,
-                    tokens_used=0,
-                    notes=note,
-                    capability=capability,
-                )
-                if self.cooldowns is not None and not (
-                    model.provider == "gemini" and bool(model.cascade)
-                ):
-                    # Gemini cascade owns per-member cooldowns; do not pin the logical
-                    # family name to permanent from cascade-exhausted status codes.
-                    kind = await self.cooldowns.apply_from_error(
-                        model.name,
-                        status_code=exc.status_code,
-                        body=str(exc),
-                        headers=getattr(exc, "headers", None),
-                    )
-                    if kind is not None:
-                        events.record(
-                            f"cooldown [{kind}]",
-                            level="warn",
-                            type="cooldown",
-                            model=model.name,
-                            provider=model.provider,
-                            error=safe_error_message(exc),
-                            capability=capability,
-                            **note_detail,
-                        )
-                log.info(
-                    "request fail",
-                    extra={
-                        "model_used": model.name,
-                        "latency_ms": 0,
-                        "success": False,
-                        "tokens_used": 0,
-                        "provider": model.provider,
-                        "capability": capability,
-                        **note_detail,
-                    },
-                )
-                events.record(
-                    "request fail",
-                    level="error",
-                    type="request_fail",
-                    model=model.name,
-                    provider=model.provider,
-                    success=False,
-                    error=safe_error_message(exc),
-                    capability=capability,
-                    **note_detail,
-                )
+                await fail(model, exc)
+                if not allow_fallback:
+                    break
+
+        while include_free:
+            model = await self.pick(capability, tokens_est)
+            if model is None or model.name in tried:
+                remaining = [
+                    m for m in await self._eligible(capability, tokens_est) if m.name not in tried
+                ]
+                if not remaining:
+                    break
+                model = remaining[0]
+            if not await self.rate_limiter.try_reserve(model.name, tokens_est):
+                tried.add(model.name)
+                continue
+            tried.add(model.name)
+            try:
+                return await succeed(model, await self._try_model(model, prompt, executor))
+            except ProviderError as exc:
+                await fail(model, exc)
                 if not allow_fallback:
                     break
                 continue
 
-        if pin:
+        if pin and capability == "embed":
             if budget_blocked:
                 rem = await self.rate_limiter.remaining_budget(pin)
                 msg = (
@@ -289,4 +340,4 @@ class ModelSelector:
             error=safe_error_message(last_err) if last_err else None,
             **note_detail,
         )
-        raise AllModelsExhaustedError(msg, http_status=status)
+        raise AllModelsExhaustedError(msg, http_status=status, skipped_models=skipped_models)

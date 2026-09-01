@@ -19,6 +19,7 @@ class LLMResponse(BaseModel):
     embedding: list[float] | None = None
     dimensions: int = 0
     raw: dict[str, Any] = Field(default_factory=dict)
+    skipped_models: list[dict[str, str]] = Field(default_factory=list)
 
 
 class BaseAdapter(ABC):

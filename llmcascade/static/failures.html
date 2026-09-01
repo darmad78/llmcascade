@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmcascade · failures</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" defer></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --line: #2a3544;
+      --text: #d6dde6;
+      --muted: #8b97a8;
+      --ok: #3dba7a;
+      --warn: #d4a017;
+      --bad: #e05a5a;
+      --accent: #3a6ea5;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1100px 520px at 8% -12%, #1a3340 0%, transparent 55%),
+        radial-gradient(900px 480px at 95% 0%, #1c2438 0%, transparent 50%),
+        var(--bg);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .header-left { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.85rem 1.25rem; }
+    h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -0.02em; }
+    h1 span { color: var(--muted); font-weight: 500; }
+    .nav-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 0.45rem; }
+    .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .nav-btn {
+      display: inline-block; padding: 0.28rem 0.7rem; border-radius: 4px;
+      border: 1px solid var(--line); color: var(--muted); text-decoration: none;
+      font-size: 0.78rem; font-weight: 550; letter-spacing: 0.02em;
+    }
+    .nav-btn:hover { color: var(--text); border-color: var(--muted); }
+    .nav-btn.is-active {
+      color: var(--text);
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+      background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+    }
+    .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
+    main { display: grid; gap: 1rem; padding: 1rem 1.5rem 2rem; }
+    h2 {
+      margin: 0 0 0.6rem; font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+    }
+    .panel {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.85rem;
+    }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+    @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .kpi {
+      padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 8px;
+      background: #0b1015;
+    }
+    .kpi .label {
+      color: var(--muted); font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 0.35rem;
+    }
+    .kpi .value { font-family: var(--mono); font-size: 1.2rem; font-weight: 550; }
+    .charts { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1rem; }
+    @media (max-width: 900px) { .charts { grid-template-columns: 1fr; } }
+    .chart-wrap { position: relative; height: 260px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 550; font-size: 0.72rem; text-transform: uppercase; }
+    .num { text-align: right; font-family: var(--mono); }
+    .banner {
+      padding: 0.7rem 0.85rem; border-radius: 8px; border: 1px solid var(--warn);
+      color: var(--warn); font-size: 0.85rem;
+    }
+    .empty-hint { color: var(--muted); font-size: 0.85rem; padding: 1.5rem 0.5rem; text-align: center; }
+    .detail {
+      font-family: var(--mono); font-size: 0.75rem; color: var(--muted);
+      white-space: pre-wrap; word-break: break-word; max-width: 48rem;
+    }
+    .pill {
+      display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px;
+      border: 1px solid var(--line); font-size: 0.72rem; font-family: var(--mono);
+    }
+    .pill.unknown { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>llmcascade <span>failures · 30d</span></h1>
+      __NAV__
+    </div>
+    <div class="meta" id="meta">loading…</div>
+  </header>
+  <main>
+    <div class="banner" id="mongo-banner" hidden></div>
+    <section class="kpi-row" id="kpis"></section>
+    <section class="charts">
+      <div class="panel">
+        <h2>Per day by kind</h2>
+        <div class="chart-wrap"><canvas id="chart-daily"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Share by kind</h2>
+        <div class="chart-wrap"><canvas id="chart-kind"></canvas></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>By model</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Provider</th>
+              <th class="num">Total</th>
+              <th class="num">Rate</th>
+              <th class="num">Daily</th>
+              <th class="num">Credit</th>
+              <th class="num">Auth</th>
+              <th class="num">Timeout</th>
+              <th class="num">Permanent</th>
+              <th class="num">Unknown</th>
+            </tr>
+          </thead>
+          <tbody id="model-rows"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Unknown (full text, redacted)</h2>
+      <p class="empty-hint" id="unknown-empty">No uncategorized failures in the last 30 days.</p>
+      <div style="overflow-x:auto">
+        <table id="unknown-table" hidden>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Model</th>
+              <th class="num">HTTP</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody id="unknown-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const CAPABILITY = "__CAPABILITY__";
+    const KINDS = ["rate", "daily", "credit", "auth", "timeout", "permanent", "unknown"];
+    const KIND_COLORS = {
+      rate: "#3a6ea5",
+      daily: "#2aabb8",
+      credit: "#d4a017",
+      auth: "#c45c9a",
+      timeout: "#8b97a8",
+      permanent: "#e05a5a",
+      unknown: "#e08a4a",
+    };
+    let dailyChart, kindChart;
+
+    function $(id) { return document.getElementById(id); }
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+      ));
+    }
+    function fmt(n) { return Number(n || 0).toLocaleString(); }
+
+    function renderKpis(data) {
+      const k = data.by_kind || {};
+      const items = [
+        ["Total", data.total || 0],
+        ["Rate / daily / credit", (k.rate || 0) + (k.daily || 0) + (k.credit || 0)],
+        ["Auth / timeout / permanent", (k.auth || 0) + (k.timeout || 0) + (k.permanent || 0)],
+        ["Unknown", k.unknown || 0],
+      ];
+      $("kpis").innerHTML = items.map(([label, v]) =>
+        `<div class="kpi"><div class="label">${escapeHtml(label)}</div><div class="value">${fmt(v)}</div></div>`
+      ).join("");
+    }
+
+    function kindCount(row, kind) {
+      return (row.by_kind && row.by_kind[kind]) || 0;
+    }
+
+    function renderModels(models) {
+      const body = $("model-rows");
+      if (!models.length) {
+        body.innerHTML = `<tr><td colspan="10" class="empty-hint">No classified failures in the last 30 days.</td></tr>`;
+        return;
+      }
+      body.innerHTML = models.map((m) => `<tr>
+        <td>${escapeHtml(m.name)}</td>
+        <td>${escapeHtml(m.provider)}</td>
+        <td class="num">${fmt(m.count)}</td>
+        ${KINDS.map((k) => `<td class="num">${fmt(kindCount(m, k))}</td>`).join("")}
+      </tr>`).join("");
+    }
+
+    function renderUnknowns(rows) {
+      if (!rows.length) {
+        $("unknown-empty").hidden = false;
+        $("unknown-table").hidden = true;
+        return;
+      }
+      $("unknown-empty").hidden = true;
+      $("unknown-table").hidden = false;
+      $("unknown-rows").innerHTML = rows.map((r) => `<tr>
+        <td>${escapeHtml((r.ts || "").replace("T", " ").replace("Z", ""))}</td>
+        <td>${escapeHtml(r.model)} <span class="pill unknown">${escapeHtml(r.provider)}</span></td>
+        <td class="num">${r.status_code == null ? "—" : escapeHtml(r.status_code)}</td>
+        <td class="detail">${escapeHtml(r.detail || r.message || "")}</td>
+      </tr>`).join("");
+    }
+
+    function stackedDaily(daily) {
+      const labels = daily.map((d) => (d.bucket || "").slice(5));
+      return {
+        labels,
+        datasets: KINDS.map((k) => ({
+          label: k,
+          data: daily.map((d) => d[k] || 0),
+          backgroundColor: KIND_COLORS[k],
+          stack: "k",
+        })),
+      };
+    }
+
+    function renderCharts(data) {
+      const daily = data.daily || [];
+      const byKind = data.by_kind || {};
+      const dailyCfg = {
+        type: "bar",
+        data: stackedDaily(daily),
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#8b97a8", boxWidth: 10 } } },
+          scales: {
+            x: { stacked: true, ticks: { color: "#8b97a8" }, grid: { color: "#2a3544" } },
+            y: { stacked: true, ticks: { color: "#8b97a8" }, grid: { color: "#2a3544" } },
+          },
+        },
+      };
+      const kindCfg = {
+        type: "doughnut",
+        data: {
+          labels: KINDS,
+          datasets: [{
+            data: KINDS.map((k) => byKind[k] || 0),
+            backgroundColor: KINDS.map((k) => KIND_COLORS[k]),
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#8b97a8" } } },
+        },
+      };
+      if (dailyChart) dailyChart.destroy();
+      if (kindChart) kindChart.destroy();
+      const dEl = $("chart-daily");
+      const kEl = $("chart-kind");
+      if (window.Chart && dEl && kEl) {
+        dailyChart = new Chart(dEl, dailyCfg);
+        kindChart = new Chart(kEl, kindCfg);
+      }
+    }
+
+    async function load() {
+      const res = await fetch(`/v1/failures?capability=${encodeURIComponent(CAPABILITY)}`);
+      if (!res.ok) {
+        $("meta").textContent = `error ${res.status}`;
+        return;
+      }
+      const data = await res.json();
+      $("meta").textContent = `${fmt(data.total || 0)} fails · 30d · ${CAPABILITY}`;
+      const banner = $("mongo-banner");
+      if (data.configured === false) {
+        banner.hidden = false;
+        banner.textContent = data.detail || "Set MONGODB_URI to record failures.";
+      } else {
+        banner.hidden = !data.detail;
+        banner.textContent = data.detail || "";
+      }
+      renderKpis(data);
+      renderModels(data.models || []);
+      renderUnknowns(data.unknowns || []);
+      renderCharts(data);
+    }
+
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from llmcascade.adapters.base import LLMResponse
 from llmcascade.admin_auth import (
@@ -42,6 +42,7 @@ from llmcascade.api_auth import (
     require_auth_enabled,
     validate_api_key,
 )
+from llmcascade.mcp_http import mcp_endpoint
 from llmcascade.auth_store import change_password, ensure_admin
 from llmcascade.event_log import events
 from llmcascade.exceptions import AllModelsExhaustedError, safe_error_message
@@ -74,6 +75,7 @@ _api_limiter: ApiKeyRateLimiter | None = None
 _STATIC = Path(__file__).resolve().parent / "static"
 _DASHBOARD_HTML = _STATIC / "dashboard.html"
 _STATS_HTML = _STATIC / "stats.html"
+_FAILURES_HTML = _STATIC / "failures.html"
 _LOGIN_HTML = _STATIC / "login.html"
 _CHANGE_PASSWORD_HTML = _STATIC / "change_password.html"
 _ADMIN_PROVIDERS_HTML = _STATIC / "admin_providers.html"
@@ -85,6 +87,25 @@ class CompleteRequest(BaseModel):
     capability: str = "chat"
     params: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
+    model: str | None = None
+    failover_models: list[str] = Field(default_factory=list)
+    include_free_cascade: bool | None = None
+
+    @model_validator(mode="after")
+    def _model_requires_cascade_flag(self) -> CompleteRequest:
+        pin = (self.model or "").strip()
+        failovers = [m.strip() for m in self.failover_models if m and m.strip()]
+        if pin:
+            if self.include_free_cascade is None:
+                raise ValueError("include_free_cascade is required when model is set")
+            self.model = pin
+            self.failover_models = failovers
+            return self
+        if failovers:
+            raise ValueError("failover_models requires model")
+        self.model = None
+        self.failover_models = []
+        return self
 
 
 class EmbedRequest(BaseModel):
@@ -258,13 +279,14 @@ async def admin_auth_middleware(request: Request, call_next):
         if wants_html(request.headers.get("accept")) or path in (
             "/dashboard",
             "/stats",
+            "/failures",
         ) or path.startswith("/admin") or path.startswith("/embed/"):
             return RedirectResponse(url="/login", status_code=303)
         return JSONResponse({"detail": "authentication required"}, status_code=401)
 
     _user, claims = session
     if claims.must_change_password and not path_allowed_during_password_change(path):
-        if wants_html(request.headers.get("accept")) or path.startswith("/admin") or path.startswith("/embed/") or path in ("/dashboard", "/stats"):
+        if wants_html(request.headers.get("accept")) or path.startswith("/admin") or path.startswith("/embed/") or path in ("/dashboard", "/stats", "/failures"):
             return RedirectResponse(url="/admin/change-password", status_code=303)
         return JSONResponse({"detail": "password change required"}, status_code=403)
 
@@ -357,14 +379,27 @@ async def _submit_inference(
     params: dict[str, Any],
     *,
     model: str | None = None,
+    failover_models: list[str] | None = None,
+    include_free_cascade: bool | None = None,
 ) -> LLMResponse:
     client = _require_client()
     try:
-        return await client.submit(prompt, capability, notes=notes, model=model, **params)
+        return await client.submit(
+            prompt,
+            capability,
+            notes=notes,
+            model=model,
+            failover_models=failover_models or [],
+            include_free_cascade=include_free_cascade,
+            **params,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AllModelsExhaustedError as exc:
-        raise HTTPException(status_code=exc.http_status, detail=str(exc)) from exc
+        detail: Any = str(exc)
+        if exc.skipped_models:
+            detail = {"message": str(exc), "skipped_models": exc.skipped_models}
+        raise HTTPException(status_code=exc.http_status, detail=detail) from exc
     except Exception as exc:
         detail: dict[str, Any] = {"capability": capability}
         if notes and str(notes).strip():
@@ -376,10 +411,231 @@ async def _submit_inference(
         raise HTTPException(status_code=502, detail=safe) from exc
 
 
+def providers_catalog(*, capability: str | None = None) -> dict[str, Any]:
+    stored = list_stored_providers()
+    rows = []
+    for info in list_providers():
+        provider = info["provider"]
+        meta = stored.get(provider, {})
+        src = key_source(info["auth_env_var"], provider=provider)
+        env_set = bool(os.environ.get(info["auth_env_var"]))
+        if info["auth_env_var"] == "HF_TOKEN":
+            env_set = env_set or bool(os.environ.get("HUGGINGFACE_API_KEY"))
+        free_n = int(meta.get("free_key_count") or 0)
+        paid_n = int(meta.get("paid_key_count") or 0)
+        free_set = free_n > 0 or (src == "env" and env_set)
+        paid_set = paid_n > 0
+        rows.append(
+            {
+                "provider": provider,
+                "auth_env_var": info["auth_env_var"],
+                "needs_account_id": info["needs_account_id"],
+                "key_set": src != "none",
+                "key_source": src,
+                "free_key_count": free_n,
+                "paid_key_count": paid_n,
+                "free_set": free_set,
+                "paid_set": paid_set,
+                "env_set": env_set,
+                "disable_env": bool(meta.get("disable_env")),
+                "free_paid": meta.get("free_paid", "free"),
+            }
+        )
+    active = {m.name for m in (_client.registry if _client else [])}
+    from llmcascade.model_store import get_override
+
+    models = []
+    for m in list_all_models():
+        parent_active = m.name in active
+        if m.cascade:
+            for mid in m.cascade:
+                ov = get_override(mid)
+                enabled = True if "enabled" not in ov else bool(ov["enabled"])
+                try:
+                    weight = max(1, int(ov.get("weight", 1)))
+                except (TypeError, ValueError):
+                    weight = 1
+                key_tier = ov.get("key_tier") if ov.get("key_tier") in ("free", "paid") else m.key_tier
+                models.append(
+                    {
+                        "name": mid,
+                        "provider": m.provider,
+                        "endpoint": m.endpoint,
+                        "auth_env_var": m.auth_env_var,
+                        "priority": m.priority,
+                        "weight": weight,
+                        "enabled": enabled,
+                        "key_tier": key_tier,
+                        "custom": False,
+                        "active": parent_active and enabled,
+                        "capabilities": m.capabilities,
+                        "limits": m.limits.model_dump(),
+                        "cascade_of": m.name,
+                        "is_cascade_member": True,
+                    }
+                )
+            continue
+        models.append(
+            {
+                "name": m.name,
+                "provider": m.provider,
+                "endpoint": m.endpoint,
+                "auth_env_var": m.auth_env_var,
+                "priority": m.priority,
+                "weight": m.weight,
+                "enabled": m.enabled,
+                "key_tier": m.key_tier,
+                "custom": m.custom,
+                "active": m.name in active,
+                "capabilities": m.capabilities,
+                "limits": m.limits.model_dump(),
+                "cascade_of": None,
+                "is_cascade_member": False,
+            }
+        )
+    models.sort(key=lambda e: (e["provider"], e["priority"], e["name"]))
+    if capability:
+        models = [m for m in models if capability in (m.get("capabilities") or [])]
+    return {
+        "providers": rows,
+        "models": models,
+        "provider_options": sorted({p["provider"] for p in rows}),
+        "csrf_cookie": CSRF_COOKIE,
+    }
+
+
+def apply_provider_save(body: ProviderSaveBody) -> dict[str, Any]:
+    provider = body.provider.strip()
+    known = {p["provider"] for p in list_providers()}
+    if provider not in known:
+        raise HTTPException(status_code=400, detail="unknown provider")
+    save_provider(
+        provider,
+        api_key=body.api_key,
+        free_paid=body.free_paid,
+        clear_key=body.clear_key,
+        add_free_key=body.add_free_key,
+        add_paid_key=body.add_paid_key,
+        clear_free_keys=body.clear_free_keys,
+        clear_paid_keys=body.clear_paid_keys,
+        replace_free_key=body.replace_free_key,
+        replace_paid_key=body.replace_paid_key,
+        disable_env=body.disable_env,
+    )
+    n = _require_client().reload_registry(allow_empty=True)
+    events.record(
+        "provider keys reloaded",
+        level="info",
+        type="admin",
+        models=n,
+        provider=provider,
+    )
+    return {"ok": True, "models": n, "provider": provider}
+
+
+async def apply_model_save(body: ModelSaveBody) -> dict[str, Any]:
+    name = body.name.strip()
+    provider = body.provider.strip()
+    if not name or not provider or not body.endpoint.strip():
+        raise HTTPException(status_code=400, detail="name, provider, and endpoint are required")
+    auth_env = (body.auth_env_var or provider_auth_env(provider)).strip()
+    try:
+        limits = Limits.model_validate(body.limits)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid limits: {exc}") from exc
+    payload = {
+        "name": name,
+        "provider": provider,
+        "endpoint": body.endpoint.strip(),
+        "auth_env_var": auth_env,
+        "capabilities": body.capabilities or ["chat"],
+        "priority": body.priority,
+        "weight": max(1, body.weight),
+        "enabled": body.enabled,
+        "key_tier": body.key_tier,
+        "limits": limits.model_dump(),
+        "free_tier_verified": body.free_tier_verified,
+        "free_tier_note": body.free_tier_note,
+        "cascade": body.cascade,
+        "custom": True,
+    }
+    upsert_custom_model(payload)
+    set_override(name, enabled=body.enabled, weight=max(1, body.weight), key_tier=body.key_tier)
+    model = ModelConfig.model_validate(payload)
+    client = _require_client()
+    probe = await probe_model(client._client, model)
+    if probe.state != "ok":
+        client.reload_registry(allow_empty=True)
+        return {
+            "ok": False,
+            "saved": True,
+            "test": probe.to_dict(),
+            "detail": f"model saved but probe failed: {probe.state} ({probe.message})",
+            "models": len(client.registry),
+        }
+    n = client.reload_registry(allow_empty=True)
+    events.record(
+        "custom model saved",
+        level="info",
+        type="admin",
+        model=name,
+        provider=provider,
+        models=n,
+    )
+    return {"ok": True, "saved": True, "test": probe.to_dict(), "models": n, "name": name}
+
+
+def apply_model_override(body: ModelOverrideBody) -> dict[str, Any]:
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    set_override(name, enabled=body.enabled, weight=body.weight, key_tier=body.key_tier)
+    n = _require_client().reload_registry(allow_empty=True)
+    events.record(
+        "model override",
+        level="info",
+        type="admin",
+        model=name,
+        enabled=body.enabled,
+        weight=body.weight,
+        models=n,
+    )
+    return {"ok": True, "models": n, "name": name}
+
+
+def apply_model_delete(name: str) -> dict[str, Any]:
+    name = name.strip()
+    if not delete_custom_model(name):
+        raise HTTPException(status_code=404, detail="custom model not found")
+    n = _require_client().reload_registry(allow_empty=True)
+    return {"ok": True, "models": n, "deleted": name}
+
+
+async def apply_model_test(name: str) -> dict[str, Any]:
+    name = name.strip()
+    model = next((m for m in list_all_models() if m.name == name), None)
+    if model is None:
+        parent = next((m for m in list_all_models() if name in (m.cascade or [])), None)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        model = parent.model_copy(update={"name": name, "cascade": []})
+    client = _require_client()
+    probe = await probe_model(client._client, model)
+    return {"ok": probe.state == "ok", "test": probe.to_dict(), "name": name}
+
+
 @app.post("/v1/complete", response_model=LLMResponse)
 async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
     await _authorize_inference(request)
-    return await _submit_inference(body.prompt, body.capability, body.notes, body.params)
+    return await _submit_inference(
+        body.prompt,
+        body.capability,
+        body.notes,
+        body.params,
+        model=body.model,
+        failover_models=body.failover_models,
+        include_free_cascade=body.include_free_cascade,
+    )
 
 
 @app.post("/v1/embed", response_model=LLMResponse)
@@ -414,6 +670,13 @@ async def stats_endpoint(
     if capability:
         snap = filter_stats_snapshot(snap, capability)
     return snap
+
+
+@app.get("/v1/failures")
+async def failures_endpoint(
+    capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
+) -> dict[str, Any]:
+    return await _require_client().failure_snapshot(capability)
 
 
 @app.get("/v1/health")
@@ -460,6 +723,16 @@ async def stats_page() -> HTMLResponse:
 @app.get("/embed/stats")
 async def embed_stats_page() -> HTMLResponse:
     return _html_file(_STATS_HTML, area="embed", active="stats")
+
+
+@app.get("/failures")
+async def failures_page() -> HTMLResponse:
+    return _html_file(_FAILURES_HTML, area="llm", active="failures")
+
+
+@app.get("/embed/failures")
+async def embed_failures_page() -> HTMLResponse:
+    return _html_file(_FAILURES_HTML, area="embed", active="failures")
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -595,236 +868,44 @@ async def embed_providers_page(request: Request) -> Response:
 async def admin_providers_data(
     capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
 ) -> dict[str, Any]:
-    import os
-
-    stored = list_stored_providers()
-    rows = []
-    for info in list_providers():
-        provider = info["provider"]
-        meta = stored.get(provider, {})
-        src = key_source(info["auth_env_var"], provider=provider)
-        env_set = bool(os.environ.get(info["auth_env_var"]))
-        if info["auth_env_var"] == "HF_TOKEN":
-            env_set = env_set or bool(os.environ.get("HUGGINGFACE_API_KEY"))
-        free_n = int(meta.get("free_key_count") or 0)
-        paid_n = int(meta.get("paid_key_count") or 0)
-        free_set = free_n > 0 or (src == "env" and env_set)
-        paid_set = paid_n > 0
-        rows.append(
-            {
-                "provider": provider,
-                "auth_env_var": info["auth_env_var"],
-                "needs_account_id": info["needs_account_id"],
-                "key_set": src != "none",
-                "key_source": src,
-                "free_key_count": free_n,
-                "paid_key_count": paid_n,
-                "free_set": free_set,
-                "paid_set": paid_set,
-                "env_set": env_set,
-                "disable_env": bool(meta.get("disable_env")),
-                "free_paid": meta.get("free_paid", "free"),
-            }
-        )
-    active = {m.name for m in (_client.registry if _client else [])}
-    try:
-        from llmcascade.model_store import get_override
-    except Exception:  # noqa: BLE001
-        get_override = lambda _n: {}  # noqa: E731
-    models = []
-    for m in list_all_models():
-        parent_active = m.name in active
-        if m.cascade:
-            for mid in m.cascade:
-                ov = get_override(mid)
-                enabled = True if "enabled" not in ov else bool(ov["enabled"])
-                try:
-                    weight = max(1, int(ov.get("weight", 1)))
-                except (TypeError, ValueError):
-                    weight = 1
-                key_tier = ov.get("key_tier") if ov.get("key_tier") in ("free", "paid") else m.key_tier
-                models.append(
-                    {
-                        "name": mid,
-                        "provider": m.provider,
-                        "endpoint": m.endpoint,
-                        "auth_env_var": m.auth_env_var,
-                        "priority": m.priority,
-                        "weight": weight,
-                        "enabled": enabled,
-                        "key_tier": key_tier,
-                        "custom": False,
-                        "active": parent_active and enabled,
-                        "capabilities": m.capabilities,
-                        "limits": m.limits.model_dump(),
-                        "cascade_of": m.name,
-                        "is_cascade_member": True,
-                    }
-                )
-            continue
-        models.append(
-            {
-                "name": m.name,
-                "provider": m.provider,
-                "endpoint": m.endpoint,
-                "auth_env_var": m.auth_env_var,
-                "priority": m.priority,
-                "weight": m.weight,
-                "enabled": m.enabled,
-                "key_tier": m.key_tier,
-                "custom": m.custom,
-                "active": m.name in active,
-                "capabilities": m.capabilities,
-                "limits": m.limits.model_dump(),
-                "cascade_of": None,
-                "is_cascade_member": False,
-            }
-        )
-    models.sort(key=lambda e: (e["provider"], e["priority"], e["name"]))
-    if capability:
-        models = [m for m in models if capability in (m.get("capabilities") or [])]
-    return {
-        "providers": rows,
-        "models": models,
-        "provider_options": sorted({p["provider"] for p in rows}),
-        "csrf_cookie": CSRF_COOKIE,
-    }
+    return providers_catalog(capability=capability)
 
 
 @app.post("/admin/providers")
 async def admin_providers_save(request: Request, body: ProviderSaveBody) -> dict[str, Any]:
     submitted = body.csrf_token or request.headers.get("x-csrf-token")
     _require_csrf(request, submitted)
-    provider = body.provider.strip()
-    known = {p["provider"] for p in list_providers()}
-    if provider not in known:
-        raise HTTPException(status_code=400, detail="unknown provider")
-    save_provider(
-        provider,
-        api_key=body.api_key,
-        free_paid=body.free_paid,
-        clear_key=body.clear_key,
-        add_free_key=body.add_free_key,
-        add_paid_key=body.add_paid_key,
-        clear_free_keys=body.clear_free_keys,
-        clear_paid_keys=body.clear_paid_keys,
-        replace_free_key=body.replace_free_key,
-        replace_paid_key=body.replace_paid_key,
-        disable_env=body.disable_env,
-    )
-    n = _require_client().reload_registry(allow_empty=True)
-    events.record(
-        "provider keys reloaded",
-        level="info",
-        type="admin",
-        models=n,
-        provider=provider,
-    )
-    return {"ok": True, "models": n, "provider": provider}
+    return apply_provider_save(body)
 
 
 @app.post("/admin/models")
 async def admin_models_save(request: Request, body: ModelSaveBody) -> dict[str, Any]:
     submitted = body.csrf_token or request.headers.get("x-csrf-token")
     _require_csrf(request, submitted)
-    name = body.name.strip()
-    provider = body.provider.strip()
-    if not name or not provider or not body.endpoint.strip():
-        raise HTTPException(status_code=400, detail="name, provider, and endpoint are required")
-    auth_env = (body.auth_env_var or provider_auth_env(provider)).strip()
-    try:
-        limits = Limits.model_validate(body.limits)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"invalid limits: {exc}") from exc
-    payload = {
-        "name": name,
-        "provider": provider,
-        "endpoint": body.endpoint.strip(),
-        "auth_env_var": auth_env,
-        "capabilities": body.capabilities or ["chat"],
-        "priority": body.priority,
-        "weight": max(1, body.weight),
-        "enabled": body.enabled,
-        "key_tier": body.key_tier,
-        "limits": limits.model_dump(),
-        "free_tier_verified": body.free_tier_verified,
-        "free_tier_note": body.free_tier_note,
-        "cascade": body.cascade,
-        "custom": True,
-    }
-    upsert_custom_model(payload)
-    set_override(name, enabled=body.enabled, weight=max(1, body.weight), key_tier=body.key_tier)
-
-    # Probe before accepting into live registry
-    model = ModelConfig.model_validate(payload)
-    client = _require_client()
-    probe = await probe_model(client._client, model)
-    if probe.state != "ok":
-        # Keep stored but report failure — operator can hide or fix keys
-        client.reload_registry(allow_empty=True)
-        return {
-            "ok": False,
-            "saved": True,
-            "test": probe.to_dict(),
-            "detail": f"model saved but probe failed: {probe.state} ({probe.message})",
-            "models": len(client.registry),
-        }
-    n = client.reload_registry(allow_empty=True)
-    events.record(
-        "custom model saved",
-        level="info",
-        type="admin",
-        model=name,
-        provider=provider,
-        models=n,
-    )
-    return {"ok": True, "saved": True, "test": probe.to_dict(), "models": n, "name": name}
+    return await apply_model_save(body)
 
 
 @app.post("/admin/models/override")
 async def admin_models_override(request: Request, body: ModelOverrideBody) -> dict[str, Any]:
     submitted = body.csrf_token or request.headers.get("x-csrf-token")
     _require_csrf(request, submitted)
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name required")
-    set_override(name, enabled=body.enabled, weight=body.weight, key_tier=body.key_tier)
-    n = _require_client().reload_registry(allow_empty=True)
-    events.record(
-        "model override",
-        level="info",
-        type="admin",
-        model=name,
-        enabled=body.enabled,
-        weight=body.weight,
-        models=n,
-    )
-    return {"ok": True, "models": n, "name": name}
+    return apply_model_override(body)
 
 
 @app.post("/admin/models/delete")
 async def admin_models_delete(request: Request, body: ModelOverrideBody) -> dict[str, Any]:
     submitted = body.csrf_token or request.headers.get("x-csrf-token")
     _require_csrf(request, submitted)
-    name = body.name.strip()
-    if not delete_custom_model(name):
-        raise HTTPException(status_code=404, detail="custom model not found")
-    n = _require_client().reload_registry(allow_empty=True)
-    return {"ok": True, "models": n, "deleted": name}
+    return apply_model_delete(body.name)
 
 
 @app.post("/admin/models/test")
 async def admin_models_test(request: Request, body: ModelOverrideBody) -> dict[str, Any]:
     submitted = body.csrf_token or request.headers.get("x-csrf-token")
     _require_csrf(request, submitted)
-    name = body.name.strip()
-    model = next((m for m in list_all_models() if m.name == name), None)
-    if model is None:
-        parent = next((m for m in list_all_models() if name in (m.cascade or [])), None)
-        if parent is None:
-            raise HTTPException(status_code=404, detail="model not found")
-        # Probe a specific cascade member id using the parent endpoint/auth.
-        model = parent.model_copy(update={"name": name, "cascade": []})
-    client = _require_client()
-    probe = await probe_model(client._client, model)
-    return {"ok": probe.state == "ok", "test": probe.to_dict(), "name": name}
+    return await apply_model_test(body.name)
+
+
+@app.api_route("/mcp", methods=["POST", "DELETE"])
+async def mcp_http(request: Request) -> Response:
+    return await mcp_endpoint(request)

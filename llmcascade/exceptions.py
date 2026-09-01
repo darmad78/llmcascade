@@ -38,9 +38,16 @@ class ProviderError(Exception):
 
 
 class AllModelsExhaustedError(Exception):
-    def __init__(self, message: str, *, http_status: int = 502) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int = 502,
+        skipped_models: list[dict[str, str]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.http_status = http_status
+        self.skipped_models = skipped_models or []
 
 
 class QueueFullError(Exception):

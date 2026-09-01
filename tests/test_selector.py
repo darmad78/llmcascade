@@ -263,3 +263,69 @@ async def test_paid_only_registry_exhausted_when_gated(monkeypatch: pytest.Monke
     models = [_m("paid-only", key_tier="paid")]
     sel = ModelSelector(models, RateLimiter(models))
     assert await sel.pick("chat") is None
+
+
+@pytest.mark.asyncio
+async def test_preferred_then_failover_then_free():
+    models = [_m("a"), _m("b"), _m("c")]
+    sel = ModelSelector(models, RateLimiter(models), strategy="priority_first")
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        if model.name in {"a", "b"}:
+            raise ProviderError("fail", status_code=500, retryable=False, model=model.name)
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback(
+        "hi",
+        "chat",
+        executor,
+        pinned_model="a",
+        failover_models=["b"],
+        include_free_cascade=True,
+    )
+    assert resp.model == "c"
+    assert calls == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_preferred_skipped_and_reported():
+    models = [_m("b")]
+    sel = ModelSelector(models, RateLimiter(models))
+
+    async def executor(model, prompt):
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback(
+        "hi",
+        "chat",
+        executor,
+        pinned_model="missing",
+        failover_models=["b"],
+        include_free_cascade=False,
+    )
+    assert resp.model == "b"
+    assert resp.skipped_models == [{"model": "missing", "reason": "unknown"}]
+
+
+@pytest.mark.asyncio
+async def test_no_free_cascade_does_not_use_other_registry_models():
+    models = [_m("a"), _m("b")]
+    sel = ModelSelector(models, RateLimiter(models))
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        raise ProviderError("fail", status_code=500, retryable=False, model=model.name)
+
+    with pytest.raises(AllModelsExhaustedError) as exc:
+        await sel.dispatch_with_fallback(
+            "hi",
+            "chat",
+            executor,
+            pinned_model="a",
+            include_free_cascade=False,
+        )
+    assert calls == ["a"]
+    assert exc.value.skipped_models == []

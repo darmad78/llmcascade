@@ -433,8 +433,8 @@
           <span class="code">MONGODB_URI is empty — add it to .env and restart</span>
         </div>
         <p class="title">Stats not configured</p>
-        <p class="what">No URI set; /stats shows empty/disabled historical data.</p>
-        <p class="fix"><strong>Fix:</strong> Optional — only needed for historical charts.</p>
+        <p class="what">No URI set; /stats and /failures show empty/disabled historical data.</p>
+        <p class="fix"><strong>Fix:</strong> Optional — only needed for historical charts and failure kind stats.</p>
       </div>
     </section>
 
@@ -447,7 +447,7 @@
           <span class="pill redirect">303 → /login</span>
         </div>
         <p class="title">Unauthenticated HTML</p>
-        <p class="what">/dashboard, /stats, /admin/* without session.</p>
+        <p class="what">/dashboard, /stats, /failures, /admin/* without session.</p>
       </div>
 
       <div class="row">

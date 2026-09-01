@@ -38,6 +38,8 @@ class _Job:
     future: asyncio.Future[LLMResponse]
     notes: str | None = None
     pinned_model: str | None = None
+    failover_models: list[str] | None = None
+    include_free_cascade: bool | None = None
 
 
 class RouterClient:
@@ -167,6 +169,8 @@ class RouterClient:
                         executor,
                         notes=job.notes,
                         pinned_model=job.pinned_model,
+                        failover_models=job.failover_models,
+                        include_free_cascade=job.include_free_cascade,
                     )
                     if not job.future.done():
                         job.future.set_result(result)
@@ -183,6 +187,8 @@ class RouterClient:
         *,
         notes: str | None = None,
         model: str | None = None,
+        failover_models: list[str] | None = None,
+        include_free_cascade: bool | None = None,
         **params: Any,
     ) -> LLMResponse:
         """Submit a completion or embedding.
@@ -201,6 +207,13 @@ class RouterClient:
         if notes is not None:
             notes = str(notes).strip() or None
         pin = (model or params.pop("model", None) or "").strip() or None
+        raw_failovers = failover_models if failover_models is not None else params.pop("failover_models", None)
+        params.pop("failover_models", None)
+        failovers = [str(m).strip() for m in (raw_failovers or []) if str(m).strip()]
+        if include_free_cascade is None and "include_free_cascade" in params:
+            include_free_cascade = params.pop("include_free_cascade")
+        else:
+            params.pop("include_free_cascade", None)
         if capability == "embed" and not pin:
             raise ValueError("embed requires model (same model for a corpus; no cascade)")
         loop = asyncio.get_running_loop()
@@ -212,6 +225,8 @@ class RouterClient:
             future=fut,
             notes=notes,
             pinned_model=pin,
+            failover_models=failovers,
+            include_free_cascade=include_free_cascade,
         )
         try:
             self._queue.put_nowait(job)
@@ -244,6 +259,9 @@ class RouterClient:
 
     async def stats_snapshot(self, range_key: str = "7d") -> dict[str, Any]:
         return await self.stats.snapshot(range_key)
+
+    async def failure_snapshot(self, capability: str | None = None) -> dict[str, Any]:
+        return await self.stats.failure_snapshot(capability)
 
     async def health_snapshot(self, *, force: bool = False) -> dict[str, dict[str, Any]]:
         return await health_cache.statuses(self._client, self.registry, force=force)

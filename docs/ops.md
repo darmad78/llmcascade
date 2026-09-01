@@ -41,6 +41,7 @@ Set `LLMCASCADE_COOKIE_SECURE=true` (or terminate HTTPS so `X-Forwarded-Proto: h
 
 Two independent layers (API key vs admin cookie). Env vars, bcrypt hashes, `ALLOW_PAID`, `SECRET_KEY`, and cookie flags are documented in [`.env.example`](../.env.example).
 
+- **`POST /mcp`:** Bearer inference key when auth is on. Admin MCP tools require `LLMCASCADE_ADMIN_API_KEYS` / `LLMCASCADE_ADMIN_API_KEY_HASHES` (disjoint from inference keys). Admin cookies are not accepted.
 - **`POST /v1/complete` and `POST /v1/embed`:** Bearer / `X-API-Key` when `LLMCASCADE_PROFILE=production` (or `REQUIRE_AUTH=true`). The dashboard chat and Test embed use the **admin session + CSRF** instead of an API key.
 - First boot creates local admin `admin` / `admin` under `LLMCASCADE_DATA_DIR` (default `.llmcascade/`) and forces a password change.
 - Admin session is a JWT in an HttpOnly `SameSite=Lax` cookie. Password changes bump `pwd_version` and invalidate older JWTs.
@@ -48,3 +49,4 @@ Two independent layers (API key vs admin cookie). Env vars, bcrypt hashes, `ALLO
 - Provider keys saved in the UI are encrypted at rest with Fernet using an **HKDF-derived** key from `SECRET_KEY`.
 - Models with `key_tier=paid` are skipped unless `ALLOW_PAID=true`.
 - Logging / `/v1/events`: metadata only. No prompts, completions, API keys, or raw provider bodies.
+- `/failures` (Mongo, 30-day TTL): classified kinds (`rate` / `daily` / `credit` / `auth` / `timeout` / `permanent`). Uncategorized errors store a redacted snippet so you can add a new kind later.

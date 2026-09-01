@@ -14,6 +14,7 @@ def test_nav_html_embed_prefix():
     html = nav_html("embed", "stats")
     assert 'href="/embed/dashboard"' in html
     assert 'href="/embed/stats"' in html
+    assert 'href="/embed/failures"' in html
     assert 'href="/embed/providers"' in html
     assert 'href="/embed/help"' in html
     assert "Embeddings" in html
@@ -157,6 +158,11 @@ def test_embed_pages_after_login(client: TestClient):
     assert stats.status_code == 200
     assert "const CAPABILITY = \"embed\"" in stats.text
 
+    fails = client.get("/embed/failures")
+    assert fails.status_code == 200
+    assert "const CAPABILITY = \"embed\"" in fails.text
+    assert 'href="/embed/failures"' in fails.text
+
     prov = client.get("/embed/providers")
     assert prov.status_code == 200
     assert "const CAPABILITY = \"embed\"" in prov.text
@@ -179,4 +185,10 @@ def test_dashboard_and_stats_capability_query(client: TestClient):
 
     r = client.get("/v1/stats?capability=embed")
     assert r.status_code == 200
+    fails = client.get("/v1/failures?capability=embed")
+    assert fails.status_code == 200
+    body = fails.json()
+    assert body.get("range") == "30d"
+    assert "by_kind" in body
+    assert "unknowns" in body
     assert r.json().get("capability") == "embed"

@@ -26,6 +26,7 @@ def nav_html(area: str, active: str) -> str:
     items = [
         ("status", f"{prefix}/dashboard" if prefix else "/dashboard", "Status"),
         ("stats", f"{prefix}/stats" if prefix else "/stats", "Stats"),
+        ("failures", f"{prefix}/failures" if prefix else "/failures", "Failures"),
         ("providers", providers, "Providers"),
         ("help", help_href, "Help"),
         ("logout", "/logout", "Logout"),

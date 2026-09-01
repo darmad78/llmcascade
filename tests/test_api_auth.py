@@ -199,3 +199,17 @@ def test_production_profile_refuses_start_without_keys(
     with pytest.raises(RuntimeError, match="production requires"):
         with TestClient(api_mod.app):
             pass
+
+
+def test_complete_request_model_requires_include_free_cascade():
+    from pydantic import ValidationError
+
+    from llmcascade.api import CompleteRequest
+
+    with pytest.raises(ValidationError):
+        CompleteRequest(prompt="hi", model="a")
+    body = CompleteRequest(prompt="hi", model="a", include_free_cascade=False)
+    assert body.failover_models == []
+    with pytest.raises(ValidationError):
+        CompleteRequest(prompt="hi", failover_models=["b"])
+    CompleteRequest(prompt="hi")

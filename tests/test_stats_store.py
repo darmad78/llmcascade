@@ -109,6 +109,9 @@ async def test_null_stats_store():
     assert snap["totals"]["models"] == []
     assert snap["totals"]["notes"] == []
     assert snap["detail"] == "no uri"
+    fail = await store.failure_snapshot()
+    assert fail["configured"] is False
+    assert fail["unknowns"] == []
 
 
 def test_note_model_key_roundtrip():

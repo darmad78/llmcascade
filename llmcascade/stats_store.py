@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from llmcascade.failures import build_failure_record, summarize_failures
 from llmcascade.metrics import log
 
 # Long-running single-process API: modest pool (free-tier router is low QPS).
@@ -68,6 +69,7 @@ class StatsStore:
         self._db = client[db_name]
         self._buckets = self._db["stats_buckets"]
         self._totals = self._db["stats_totals"]
+        self._failures = self._db["failures"]
         self.configured = True
         self.detail = ""
         # Strong refs so fire-and-forget tasks are not GC'd before they run.
@@ -110,6 +112,9 @@ class StatsStore:
         )
         await self._buckets.create_index([("grain", 1), ("bucket", 1), ("provider", 1)])
         await self._totals.create_index([("scope", 1), ("name", 1)], unique=True, name="scope_name")
+        await self._failures.create_index("ts", expireAfterSeconds=30 * 24 * 3600, name="ts_ttl_30d")
+        await self._failures.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
+        await self._failures.create_index([("kind", 1), ("ts", -1)], name="kind_ts")
 
     async def close(self) -> None:
         if self._pending:
@@ -146,6 +151,65 @@ class StatsStore:
         )
         self._pending.add(task)
         task.add_done_callback(self._pending.discard)
+
+    def enqueue_failure(self, **kwargs: Any) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = loop.create_task(self.record_failure(**kwargs))
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
+    async def record_failure(
+        self,
+        *,
+        model: str,
+        provider: str,
+        capability: str,
+        notes: str | None,
+        exc: BaseException,
+        at: datetime | None = None,
+    ) -> None:
+        doc = build_failure_record(
+            model=model,
+            provider=provider,
+            capability=capability,
+            notes=notes,
+            exc=exc,
+            at=at,
+        )
+        try:
+            await self._failures.insert_one(doc)
+        except Exception as err:  # noqa: BLE001 — never fail request path
+            log.error(
+                f"failure persist failed: {err}",
+                extra={"model_used": model, "provider": provider, "success": False},
+            )
+
+    async def failure_snapshot(self, capability: str | None = None) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        day_from = now - timedelta(days=30)
+        query: dict[str, Any] = {"ts": {"$gte": day_from}}
+        if capability:
+            query["capability"] = capability
+        try:
+            docs = await self._failures.find(query).to_list(length=50_000)
+        except Exception as err:  # noqa: BLE001
+            return {
+                "configured": True,
+                "range": "30d",
+                "total": 0,
+                "by_kind": {},
+                "models": [],
+                "providers": [],
+                "daily": [],
+                "unknowns": [],
+                "detail": str(err),
+            }
+        out = summarize_failures(docs)
+        out["configured"] = True
+        return out
 
     async def record(
         self,
@@ -543,8 +607,27 @@ class NullStatsStore:
     def enqueue(self, **_kwargs: Any) -> None:
         return None
 
+    def enqueue_failure(self, **_kwargs: Any) -> None:
+        return None
+
     async def record(self, **_kwargs: Any) -> None:
         return None
+
+    async def record_failure(self, **_kwargs: Any) -> None:
+        return None
+
+    async def failure_snapshot(self, capability: str | None = None) -> dict[str, Any]:
+        return {
+            "configured": False,
+            "range": "30d",
+            "total": 0,
+            "by_kind": {},
+            "models": [],
+            "providers": [],
+            "daily": [],
+            "unknowns": [],
+            "detail": self.detail,
+        }
 
     async def snapshot(self, range_key: str = "7d") -> dict[str, Any]:
         return {

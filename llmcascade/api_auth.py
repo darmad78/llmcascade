@@ -1,10 +1,10 @@
-"""Optional API-key auth for POST /v1/complete."""
+"""Optional API-key auth for POST /v1/complete and HTTP MCP."""
 
 from __future__ import annotations
 
 import os
 import secrets
-from typing import Iterable
+from typing import Iterable, Literal
 
 _BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
 
@@ -132,3 +132,55 @@ def hash_api_key(plaintext: str) -> str:
     import bcrypt
 
     return bcrypt.hashpw(plaintext.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
+
+
+def configured_admin_plaintext_keys() -> set[str]:
+    raw = (os.environ.get("LLMCASCADE_ADMIN_API_KEYS") or "").strip()
+    if not raw:
+        return set()
+    return {p for p in _split_csv(raw) if not _looks_like_bcrypt(p)}
+
+
+def configured_admin_api_key_hashes() -> list[str]:
+    out: list[str] = []
+    for env_name in ("LLMCASCADE_ADMIN_API_KEY_HASHES", "LLMCASCADE_ADMIN_API_KEYS"):
+        raw = (os.environ.get(env_name) or "").strip()
+        if not raw:
+            continue
+        for part in _split_csv(raw):
+            if _looks_like_bcrypt(part):
+                out.append(part)
+    return out
+
+
+def admin_credentials_configured() -> bool:
+    return bool(configured_admin_plaintext_keys() or configured_admin_api_key_hashes())
+
+
+def validate_admin_api_key(
+    api_key: str | None,
+    allowed: Iterable[str] | None = None,
+    *,
+    hashes: Iterable[str] | None = None,
+) -> bool:
+    if not api_key:
+        return False
+    plain = set(allowed) if allowed is not None else configured_admin_plaintext_keys()
+    hash_list = list(hashes) if hashes is not None else configured_admin_api_key_hashes()
+    if not plain and not hash_list:
+        return False
+    ok_plain = _match_plaintext(api_key, plain) if plain else False
+    ok_hash = _match_hashes(api_key, hash_list) if hash_list else False
+    return ok_plain or ok_hash
+
+
+McpPrincipal = Literal["none", "inference", "admin"]
+
+
+def mcp_principal(api_key: str | None) -> McpPrincipal:
+    """Admin keys win if both lists contain the same secret; keep the lists disjoint."""
+    if validate_admin_api_key(api_key):
+        return "admin"
+    if validate_api_key(api_key):
+        return "inference"
+    return "none"

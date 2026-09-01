@@ -2,7 +2,25 @@
 
 Self-hosted **free-tier LLM dispatcher**. At request time it picks an eligible free model from a live rate-limit budget, calls that provider’s native HTTP API, and falls back on failure. **Embeddings** are pinned to one model (no cascade across vector spaces).
 
-Python **3.11+**. Optional in-process library (`RouterClient`). Not a multi-tenant hosted service. Streaming is not supported in v1.
+Python **3.11+**. Optional in-process library (`RouterClient`).
+
+## Capabilities and limitations
+
+**Does**
+
+- Dispatch **chat** across eligible free-tier models using live **rpd / rpm / rps / tpm** budgets; retry once on timeout/5xx, then fail over.
+- Pin chat with `model`, optional `failover_models`, and required `include_free_cascade` when a pin is set.
+- **Embed** with a required `model` (no cascade across vector spaces).
+- Expose **HTTP** (`/v1/complete`, `/v1/embed`) and **MCP** (`POST /mcp` JSON-RPC): inference tools plus separate admin tools.
+- Admin UI for keys, models, dashboards, and stats (Mongo when `MONGODB_URI` is set).
+
+**Does not**
+
+- Stream tokens. Not a multi-tenant hosted product.
+- Enforce a **prompt or HTTP body size** in the app. Uvicorn/FastAPI accept unbounded JSON; a reverse proxy may still cap you (nginx default **`client_max_body_size` is 1 MB** if unset — 413 before the app).
+- Use `max_context` from [`models.yaml`](llmcascade/models.yaml) for gating. Size is only reflected in **TPM**: estimate is `len(prompt) // 4`. A request larger than remaining TPM is skipped for that model; providers may still reject over-context prompts that fit TPM.
+- Run more than **one** API process. Budgets, queue, metrics, and login lockout are in-memory (`RouterClient` queue **maxsize 100**, **4** workers). Huge prompts sit in RAM until processed.
+- Auto-select `key_tier=paid` unless `ALLOW_PAID=true`. Provider HTTP timeout is **60s**.
 
 ## Quick start
 
@@ -74,24 +92,41 @@ print(len(emb.json()["embedding"]), emb.json()["dimensions"])
 
 `502` means every eligible model failed. Embeddings **must** set `model` (same ID for a corpus). Chat may fall through providers; embeddings do not.
 
+MCP clients (Cursor, Claude, etc.) POST JSON-RPC to `/mcp`:
+
+```json
+{
+  "mcpServers": {
+    "llmcascade": {
+      "url": "http://127.0.0.1:12000/mcp",
+      "headers": { "Authorization": "Bearer YOUR_KEY" }
+    }
+  }
+}
+```
+
+Use an inference key for `complete`/`embed`. Use a **different** admin key for provider/model tools.
+
 **Auth on `/v1/complete` and `/v1/embed`:**
 
 - **Apps:** `Authorization: Bearer <key>` or `X-API-Key: <key>` when production profile / `REQUIRE_AUTH=true`.
 - **Dashboard UI** (chat + Test embed): logged-in admin cookie **and** `X-CSRF-Token`. No API key in the browser.
+- **MCP** (`POST /mcp`): same inference keys for `complete` / `embed`. Admin tools need a **separate** `LLMCASCADE_ADMIN_API_KEYS` (or hashes) Bearer token. Cookies are ignored.
 
 | Method | Path | Notes |
 |--------|------|--------|
-| `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"? }` → `text`, `model`, … |
+| `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"?, "model"?, "failover_models"?, "include_free_cascade"? }` → `text`, `model`, … |
 | `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"? }` → `embedding`, `dimensions` |
 | `GET` | `/v1/status` | Budgets + Gemini snapshot |
 | `GET` | `/v1/health` | Provider reachability |
-| `GET` | `/help` | Public error catalog (no login) |
+| `POST` | `/mcp` | Streamable HTTP MCP (JSON-RPC). Inference + admin tools. |
 | `GET` | `/dashboard` | Chat status UI (login) |
 | `GET` | `/embed/dashboard` | Embeddings UI + Test embed (login) |
 | `GET` | `/stats` · `/embed/stats` | Charts by `notes` (login; Mongo when `MONGODB_URI` is set) |
+| `GET` | `/failures` · `/embed/failures` | Last 30 days of classified provider failures (login; Mongo) |
 | `GET` | `/admin/providers` · `/embed/providers` | Encrypted keys, LLM vs embeddings (login) |
 
-Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats?capability=chat\|embed`, `/v1/events`, `/v1/errors`, `/v1/dashboard?capability=…` (those `/v1/*` data routes need the **admin** cookie, not the complete API key). `/embed/help` is the embeddings error catalog.
+Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats?capability=chat\|embed`, `/v1/failures?capability=…`, `/v1/events`, `/v1/errors`, `/v1/dashboard?capability=…` (those `/v1/*` data routes need the **admin** cookie, not the complete API key). `/embed/help` is the embeddings error catalog.
 
 ## Providers
 
@@ -152,7 +187,8 @@ asyncio.run(main())
 | Symptom | Fix |
 |---------|-----|
 | No models / empty status | Set at least one provider key in `.env` or `/admin/providers`, then restart. |
-| `502` on complete/embed | All eligible models failed or were over budget. Check `/v1/errors` (after login) and `/help`. |
+| `502` on complete/embed | All eligible models failed or were over budget (including TPM vs prompt size). Check `/v1/errors` (after login) and `/help`. |
+| `413` from nginx | Request body over the proxy cap (default **1 MB** unless `client_max_body_size` is set). |
 | `401` from curl/apps | Production profile: send `Authorization: Bearer …`. |
 | Dashboard chat / Test embed `401` | Hard-refresh after login. Session + CSRF is enough; do not paste an API key in the UI. |
 | `400` embed requires model | Pin one registry name; embeddings do not cascade. |
