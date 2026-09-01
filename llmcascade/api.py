@@ -188,18 +188,35 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(CSRF_COOKIE, path="/")
 
 
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """KEY=VALUE parser that does not expand `$` (bcrypt hashes must stay literal)."""
+    out: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1]
+        if key:
+            out[key] = val
+    return out
+
+
 def _load_env_files() -> None:
     """Load .env files; non-empty process env wins, empty placeholders are filled from file."""
-    try:
-        from dotenv import dotenv_values
-    except ImportError:
-        return
     for path in (Path.cwd() / ".env", Path(__file__).resolve().parents[1] / ".env"):
         if not path.is_file():
             continue
-        for key, val in dotenv_values(path).items():
-            if val is None:
-                continue
+        for key, val in _parse_env_file(path).items():
             cur = os.environ.get(key)
             if cur is None or str(cur).strip() == "":
                 os.environ[key] = val

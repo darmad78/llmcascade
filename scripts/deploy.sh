@@ -72,25 +72,20 @@ import os, shlex, sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-try:
-    from dotenv import dotenv_values
-except ImportError:
-    # Minimal fallback: KEY=VALUE, strip optional quotes; skip if already set.
-    vals = {}
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1]
-        vals[key] = val
-else:
-    vals = {k: v for k, v in dotenv_values(path).items() if k and v is not None}
+# Do not use python-dotenv here: `$` in bcrypt hashes (`$2b$…`) is not valid dotenv.
+vals = {}
+for raw in path.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    if line.startswith("export "):
+        line = line[7:].strip()
+    key, _, val = line.partition("=")
+    key = key.strip()
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+        val = val[1:-1]
+    vals[key] = val
 
 for key, val in vals.items():
     if not key:

@@ -213,3 +213,13 @@ def test_complete_request_model_requires_include_free_cascade():
     with pytest.raises(ValidationError):
         CompleteRequest(prompt="hi", failover_models=["b"])
     CompleteRequest(prompt="hi")
+
+
+def test_parse_env_file_keeps_bcrypt_dollars(tmp_path: Path):
+    from llmcascade.api import _parse_env_file
+
+    hashed = "$2b$12$abcdefghijklmnopqrstuv"
+    env = tmp_path / ".env"
+    env.write_text(f"LLMCASCADE_API_KEY_HASHES='{hashed}'\n", encoding="utf-8")
+    parsed = _parse_env_file(env)
+    assert parsed["LLMCASCADE_API_KEY_HASHES"] == hashed
