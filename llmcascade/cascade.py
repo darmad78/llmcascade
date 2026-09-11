@@ -57,6 +57,8 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
         or ("daily" in text and ("quota" in text or "limit" in text))
         or "limit: 0" in text
         or "limit:0" in text
+        or "exceeded your current quota" in text
+        or "check your plan and billing" in text
     ):
         return "daily"
     if status_code == 429:
@@ -131,8 +133,8 @@ def cooldown_until(
         return now + CREDIT_COOLDOWN
     if kind == "permanent":
         return now + PERMANENT_COOLDOWN
-    # daily → prefer provider reset header, else next America/Los_Angeles midnight
-    if learned is not None and learned > now:
+    # daily → Pacific midnight. Ignore short Retry-After (Google often sends 60s on quota 429).
+    if learned is not None and learned - now >= timedelta(minutes=30):
         return learned
     local = now.astimezone(PACIFIC)
     next_midnight = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -266,14 +268,16 @@ class GeminiCascadeManager:
         now: datetime | None = None,
         headers: dict[str, str] | None = None,
     ) -> None:
-        # Quotas are per model ID — never fan out to siblings. `body` kept for call-site compat.
         until = cooldown_until(kind, now=now, headers=headers)
         if until is None:
             return
+        # Daily/credit quota is project-wide — lock the whole Flash family.
+        targets = list(self.models) if kind in ("daily", "credit") else [model_id]
         async with self._lock:
-            prev = self._cooldowns.get(model_id)
-            if prev is None or until > prev:
-                self._cooldowns[model_id] = until
+            for mid in targets:
+                prev = self._cooldowns.get(mid)
+                if prev is None or until > prev:
+                    self._cooldowns[mid] = until
 
     async def status(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)

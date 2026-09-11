@@ -267,6 +267,10 @@ class RouterClient:
         return await health_cache.statuses(self._client, self.registry, force=force)
 
     async def dashboard_snapshot(self, *, force_health: bool = False) -> dict[str, Any]:
+        try:
+            await self.rate_limiter.refresh_live_quotas(self._client, self.registry)
+        except Exception:  # noqa: BLE001
+            pass
         budgets = await self.status()
         snap = metrics.snapshot()
         try:
@@ -279,6 +283,10 @@ class RouterClient:
         cooling = budgets.get("model_cooldowns") or {}
         if not isinstance(cooling, dict):
             cooling = {}
+        gemini_status = budgets.get("gemini_cascade")
+        gemini_family_cooling = isinstance(gemini_status, dict) and not bool(
+            gemini_status.get("family_ready", True)
+        )
         models = []
         active_names = {m.name for m in self.registry}
         all_models = list_all_models(self._models_path) if self._models_path else list(self.registry)
@@ -288,6 +296,18 @@ class RouterClient:
         for m in by_name.values():
             budget = budgets.get(m.name, {})
             src = key_source(m.auth_env_var, provider=m.provider, key_tier=getattr(m, "key_tier", "free"))
+            row_cooling = False
+            if m.provider == "gemini" and m.cascade:
+                row_cooling = gemini_family_cooling
+            else:
+                cd = cooling.get(m.name) if isinstance(cooling.get(m.name), dict) else None
+                row_cooling = bool(cd) and int(cd.get("remaining_s") or 0) > 0
+            free_left = None
+            if m.free_tier_verified and m.name in active_names:
+                if row_cooling:
+                    free_left = {k: 0 for k in ("rps", "rpm", "rpd", "tpm")}
+                else:
+                    free_left = budget
             entry: dict[str, Any] = {
                 "name": m.name,
                 "provider": m.provider,
@@ -297,7 +317,14 @@ class RouterClient:
                 "budget": budget if m.name in active_names else {},
                 "free_tier_verified": m.free_tier_verified,
                 "free_tier_note": m.free_tier_note,
-                "free_left": budget if m.free_tier_verified and m.name in active_names else None,
+                "free_left": free_left,
+                "quota_source": (
+                    "cooldown"
+                    if row_cooling
+                    else self.rate_limiter.quota_source(m.name)
+                    if m.name in active_names
+                    else "local"
+                ),
                 "is_next": bool(
                     ("embed" in m.capabilities and next_embed and next_embed.name == m.name)
                     or ("chat" in m.capabilities and next_model and next_model.name == m.name)
@@ -305,7 +332,17 @@ class RouterClient:
                 "requests_total": snap["requests_total"].get(m.name, 0),
                 "failures_total": snap["failures_total"].get(m.name, 0),
                 "health": health.get(m.name, {"state": "unknown"}),
-                "cooldown": cooling.get(m.name),
+                "cooldown": (
+                    {
+                        "kind": "daily",
+                        "remaining_s": int(gemini_status.get("next_ready_in_s") or 0),
+                    }
+                    if row_cooling
+                    and m.provider == "gemini"
+                    and m.cascade
+                    and isinstance(gemini_status, dict)
+                    else cooling.get(m.name)
+                ),
                 "key_set": src != "none" or key_is_set(m.provider),
                 "key_source": src,
                 "active": m.name in active_names,
@@ -320,9 +357,12 @@ class RouterClient:
         models.sort(key=lambda e: (e["priority"], e["name"]))
         gemini = budgets.get("gemini_cascade")
         if isinstance(gemini, dict):
+            g_budget = budgets.get("gemini", {})
+            if gemini_family_cooling:
+                g_budget = {k: 0 for k in ("rps", "rpm", "rpd", "tpm")}
             gemini = {
                 **gemini,
-                "budget": budgets.get("gemini", {}),
+                "budget": g_budget,
                 "requests_total": snap["requests_total"].get("gemini", 0),
                 "failures_total": snap["failures_total"].get("gemini", 0),
             }

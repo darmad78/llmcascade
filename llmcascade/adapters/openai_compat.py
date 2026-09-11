@@ -63,6 +63,7 @@ class OpenAICompatibleAdapter(BaseAdapter):
             tokens_used=tokens,
             latency_ms=timed_ms(start),
             raw=data,
+            headers=dict(resp.headers),
         )
 
     async def embed(self, prompt: str, **params: Any) -> LLMResponse:

@@ -20,6 +20,7 @@ class LLMResponse(BaseModel):
     dimensions: int = 0
     raw: dict[str, Any] = Field(default_factory=dict)
     skipped_models: list[dict[str, str]] = Field(default_factory=list)
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class BaseAdapter(ABC):

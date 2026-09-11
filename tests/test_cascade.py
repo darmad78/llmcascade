@@ -23,6 +23,13 @@ def test_classify_daily():
     assert classify_failure(429, "daily quota limit") == "daily"
     assert classify_failure(403, "limit:0") == "daily"
     assert classify_failure(429, "Rate limit exceeded: free-models-per-day") == "daily"
+    assert (
+        classify_failure(
+            429,
+            "You exceeded your current quota, please check your plan and billing details.",
+        )
+        == "daily"
+    )
 
 
 def test_classify_credit():
@@ -66,6 +73,13 @@ def test_cooldown_learns_retry_after():
     assert until == now + timedelta(seconds=90)
 
 
+def test_daily_ignores_short_retry_after():
+    now = datetime(2026, 8, 6, 20, 0, tzinfo=timezone.utc)
+    until = cooldown_until("daily", now=now, headers={"Retry-After": "60"})
+    assert until is not None
+    assert (until - now).total_seconds() > 3600
+
+
 def test_cooldown_learns_ratelimit_reset_ms():
     now = datetime(2026, 8, 6, 20, 0, tzinfo=timezone.utc)
     reset_ms = int((now + timedelta(hours=2)).timestamp() * 1000)
@@ -101,17 +115,48 @@ def test_effective_cascade_hides_and_reorders(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_quota_cools_only_failed_model():
+async def test_rpm_cools_only_failed_model():
     mgr = GeminiCascadeManager(["a", "b", "c"])
-    await mgr.apply_cooldown(
-        "a",
-        "rate",
-        body="You exceeded your current quota for this project",
-    )
+    await mgr.apply_cooldown("a", "rate", body="rate limit")
     assert await mgr.is_cooling("a")
     assert not await mgr.is_cooling("b")
     assert not await mgr.is_cooling("c")
     assert await mgr.any_available()
+
+
+@pytest.mark.asyncio
+async def test_daily_quota_cools_whole_family():
+    mgr = GeminiCascadeManager(["a", "b", "c"])
+    await mgr.apply_cooldown(
+        "a",
+        "daily",
+        body="You exceeded your current quota, please check your plan and billing details.",
+    )
+    assert await mgr.is_cooling("a")
+    assert await mgr.is_cooling("b")
+    assert await mgr.is_cooling("c")
+    assert not await mgr.any_available()
+
+
+@pytest.mark.asyncio
+async def test_google_quota_429_stops_family_in_same_run():
+    mgr = GeminiCascadeManager(["a", "b"])
+    calls: list[str] = []
+
+    async def send(model_id: str, prompt: str) -> LLMResponse:
+        calls.append(model_id)
+        raise ProviderError(
+            "You exceeded your current quota, please check your plan and billing details.",
+            status_code=429,
+            retryable=False,
+            model=model_id,
+        )
+
+    with pytest.raises(ProviderError):
+        await mgr.run(send, "hi")
+    assert calls == ["a"]
+    assert await mgr.is_cooling("a")
+    assert await mgr.is_cooling("b")
 
 
 @pytest.mark.asyncio

@@ -203,6 +203,9 @@ class ModelSelector:
                 capability=capability,
                 **note_detail,
             )
+            await self.rate_limiter.ingest_headers(
+                model.name, getattr(resp, "headers", None) or None, provider=model.provider
+            )
             return self._with_skipped(resp, skipped_models)
 
         async def fail(model: ModelConfig, exc: ProviderError) -> None:
@@ -224,6 +227,9 @@ class ModelSelector:
                 capability=capability,
                 notes=note,
                 exc=exc,
+            )
+            await self.rate_limiter.ingest_headers(
+                model.name, getattr(exc, "headers", None), provider=model.provider
             )
             if self.cooldowns is not None and not (
                 model.provider == "gemini" and bool(model.cascade)

@@ -509,6 +509,8 @@
       if (!m.free_tier_verified) {
         return `<span class="free-unverified" title="${escapeHtml(m.free_tier_note || "")}">unverified</span>`;
       }
+      const cd = m.cooldown || {};
+      const cooling = (cd.remaining_s || 0) > 0;
       const b = m.free_left || m.budget || {};
       const lim = m.limits || {};
       const parts = [
@@ -519,7 +521,12 @@
         const c = cap ?? "—";
         return `<span>${k} <strong>${escapeHtml(l)}</strong><span class="cap">/${escapeHtml(c)}</span></span>`;
       });
-      return `<div class="free-left">${parts.join(" · ")}</div>`;
+      const cool = cooling
+        ? `<div class="free-note">${escapeHtml(cd.kind || "cooldown")} · ${escapeHtml(fmtDuration(cd.remaining_s))}</div>`
+        : (m.quota_source === "headers" || m.quota_source === "openrouter_key")
+          ? `<div class="free-note">live</div>`
+          : "";
+      return `<div class="free-left">${parts.join(" · ")}</div>${cool}`;
     }
 
     function fmtFreeTier(m) {

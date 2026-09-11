@@ -6,7 +6,8 @@ from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from typing import Any, Deque
 
-from llmcascade.registry import ModelConfig
+from llmcascade.provider_quota import parse_openrouter_key, parse_quota_headers
+from llmcascade.registry import ModelConfig, resolve_auth_env
 
 
 class BudgetStore(ABC):
@@ -53,6 +54,11 @@ class RateLimiter:
         self._locks: dict[str, asyncio.Lock] = {m.name: asyncio.Lock() for m in models}
         self.gemini_cascade = gemini_cascade
         self.cooldowns = cooldowns
+        self._live: dict[str, dict[str, int]] = {}
+        self._live_source: dict[str, str] = {}
+        self._live_lock = asyncio.Lock()
+        self._live_refresh_at = 0.0
+        self._live_ttl_s = 20.0
 
     def replace_models(self, models: list[ModelConfig]) -> None:
         """Hot-reload model limit map; preserve budget event store."""
@@ -66,6 +72,99 @@ class RateLimiter:
         if model_name not in self._locks:
             self._locks[model_name] = asyncio.Lock()
         return self._locks[model_name]
+
+    def _live_exhausted(self, model_name: str, tokens_estimate: int = 0) -> bool:
+        live = self._live.get(model_name) or {}
+        if live.get("rpd", 1) <= 0:
+            return True
+        if live.get("rpm", 1) <= 0:
+            return True
+        if tokens_estimate and live.get("tpm") is not None and live["tpm"] < tokens_estimate:
+            return True
+        return False
+
+    async def ingest_quota(
+        self,
+        model_name: str,
+        parsed: dict[str, int],
+        *,
+        provider: str | None = None,
+        source: str = "headers",
+        fanout: bool = True,
+    ) -> None:
+        if not parsed:
+            return
+        names = [model_name]
+        if fanout and provider:
+            names = [n for n, m in self._models.items() if m.provider == provider] or names
+        async with self._live_lock:
+            for name in names:
+                prev = dict(self._live.get(name) or {})
+                prev.update(parsed)
+                self._live[name] = prev
+                self._live_source[name] = source
+
+    async def ingest_headers(
+        self,
+        model_name: str,
+        headers: dict[str, str] | None,
+        *,
+        provider: str = "",
+    ) -> None:
+        parsed = parse_quota_headers(headers, provider=provider)
+        await self.ingest_quota(model_name, parsed, provider=provider, source="headers")
+
+    def quota_source(self, model_name: str) -> str:
+        return self._live_source.get(model_name) or "local"
+
+    async def refresh_live_quotas(self, client: Any, models: list[ModelConfig] | None = None) -> None:
+        """Pull Groq header remaining and OpenRouter key payload. Cached ~20s."""
+        now = time.monotonic()
+        if now - self._live_refresh_at < self._live_ttl_s:
+            return
+        self._live_refresh_at = now
+        roster = models if models is not None else list(self._models.values())
+        seen: set[str] = set()
+        for model in roster:
+            if model.provider in seen:
+                continue
+            key = resolve_auth_env(
+                model.auth_env_var,
+                provider=model.provider,
+                key_tier=getattr(model, "key_tier", "free"),
+            )
+            if not key:
+                continue
+            seen.add(model.provider)
+            try:
+                if model.provider == "groq":
+                    resp = await client.get(
+                        "https://api.groq.com/openai/v1/models",
+                        headers={"Authorization": f"Bearer {key}"},
+                        timeout=8.0,
+                    )
+                    await self.ingest_headers(
+                        model.name, dict(resp.headers), provider="groq"
+                    )
+                elif model.provider == "openrouter":
+                    resp = await client.get(
+                        "https://openrouter.ai/api/v1/key",
+                        headers={"Authorization": f"Bearer {key}"},
+                        timeout=8.0,
+                    )
+                    if resp.status_code < 400:
+                        parsed = parse_openrouter_key(resp.json())
+                        await self.ingest_quota(
+                            model.name,
+                            parsed,
+                            provider="openrouter",
+                            source="openrouter_key",
+                        )
+                    await self.ingest_headers(
+                        model.name, dict(resp.headers), provider="openrouter"
+                    )
+            except Exception:  # noqa: BLE001 — keep dashboard up
+                continue
 
     async def _count(self, model_name: str, metric: str, now: float) -> int:
         key = f"{model_name}:{metric}"
@@ -87,6 +186,8 @@ class RateLimiter:
             and getattr(cascade, "logical_name", None) == model_name
             and not await cascade.any_available()
         ):
+            return False
+        if self._live_exhausted(model_name, tokens_estimate):
             return False
         async with self._lock(model_name):
             now = time.monotonic()
@@ -116,6 +217,8 @@ class RateLimiter:
             and not await cascade.any_available()
         ):
             return False
+        if self._live_exhausted(model_name, tokens_estimate):
+            return False
         async with self._lock(model_name):
             now = time.monotonic()
             limits = model.limits
@@ -137,6 +240,14 @@ class RateLimiter:
                 events = _prune(await self._store.get_events(key), now, self.WINDOWS[metric])
                 events.append((now, amount))
                 await self._store.set_events(key, events)
+            live = self._live.get(model_name)
+            if live:
+                if "rpd" in live:
+                    live["rpd"] = max(0, live["rpd"] - 1)
+                if "rpm" in live:
+                    live["rpm"] = max(0, live["rpm"] - 1)
+                if "tpm" in live:
+                    live["tpm"] = max(0, live["tpm"] - max(0, tokens_estimate))
             return True
 
     async def record_usage(self, model_name: str, tokens_used: int) -> None:
@@ -161,12 +272,17 @@ class RateLimiter:
                 "rpd": await self._count(model_name, "rpd", now),
                 "tpm": await self._count(model_name, "tpm", now),
             }
-            return {
+            out = {
                 "rps": max(0, lim.rps - used["rps"]),
                 "rpm": max(0, lim.rpm - used["rpm"]),
                 "rpd": max(0, lim.rpd - used["rpd"]),
                 "tpm": max(0, lim.tpm - used["tpm"]),
             }
+            live = self._live.get(model_name) or {}
+            for metric in ("rpm", "rpd", "tpm"):
+                if metric in live:
+                    out[metric] = live[metric]
+            return out
 
 
 class ApiKeyRateLimiter:
