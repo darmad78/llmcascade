@@ -30,6 +30,8 @@
       border: 1px solid var(--line); color: var(--muted); text-decoration: none;
       font-size: 0.78rem; font-weight: 550;
     }
+    .nav-btn:hover { color: var(--text); border-color: #5a8ec5; background: color-mix(in srgb, #3a6ea5 18%, var(--panel)); }
+    .nav-btn:active { color: #fff; background: #3a6ea5; border-color: #7eb6ea; }
     .nav-btn.is-active { color: var(--text); background: color-mix(in srgb, #3a6ea5 22%, var(--panel)); }
     main { padding: 1rem 1.5rem 2rem; display: grid; gap: 1.5rem; }
     .note { color: var(--muted); font-size: 0.85rem; margin: 0; max-width: 52rem; }
@@ -47,9 +49,24 @@
       padding: 0.35rem 0.65rem; border-radius: 4px; border: 1px solid #3a6ea5;
       background: color-mix(in srgb, #3a6ea5 28%, var(--panel)); color: var(--text);
       cursor: pointer; font-size: 0.78rem;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, filter 0.12s ease;
+    }
+    button:hover { background: color-mix(in srgb, #3a6ea5 52%, var(--panel)); border-color: #7eb6ea; color: #fff; }
+    button:active, button.is-pressed, button.is-clicked {
+      background: #2f6cb0; border-color: #9cc8f0; color: #fff; filter: brightness(1.15);
     }
     button.ghost { border-color: var(--line); background: transparent; color: var(--muted); }
+    button.ghost:hover { background: color-mix(in srgb, #3a6ea5 22%, var(--panel)); border-color: #5a8ec5; color: var(--text); }
+    button.ghost:active, button.ghost.is-pressed, button.ghost.is-clicked {
+      background: #3a6ea5; border-color: #7eb6ea; color: #fff;
+    }
     button.danger { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); color: var(--bad); background: transparent; }
+    button.danger:hover { background: color-mix(in srgb, var(--bad) 18%, var(--panel)); color: #ff8a8a; }
+    button.danger:active, button.danger.is-pressed, button.danger.is-clicked {
+      background: var(--bad); border-color: #ff8a8a; color: #fff;
+    }
+    a.signup:hover { color: #c5e2ff; }
+    a.signup:active { color: #fff; }
     .src { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
     .pill { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; border: 1px solid var(--line); }
     .pill.ok { color: var(--ok); }
@@ -74,6 +91,10 @@
       padding: 0 0.35rem 0 0; font-family: var(--mono); font-size: 0.85rem;
       cursor: pointer; min-width: 1.2rem;
     }
+    tr.group-row button.group-toggle:hover { color: var(--text); }
+    tr.group-row button.group-toggle:active,
+    tr.group-row button.group-toggle.is-pressed,
+    tr.group-row button.group-toggle.is-clicked { color: #9cc8f0; }
     tr.model-row.is-collapsed { display: none; }
     tr.model-row td:first-child { padding-left: 1.5rem; }
     .conn { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); word-break: break-all; max-width: 28rem; }
@@ -579,6 +600,26 @@
         setMsg(err.message || String(err), false);
       }
     });
+
+    document.addEventListener("pointerdown", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      btn.classList.add("is-pressed");
+    });
+    const clearPress = (e) => {
+      const btn = e.target.closest ? e.target.closest("button") : null;
+      document.querySelectorAll("button.is-pressed").forEach((el) => {
+        el.classList.remove("is-pressed");
+        el.classList.add("is-clicked");
+        setTimeout(() => el.classList.remove("is-clicked"), 450);
+      });
+      if (btn && !btn.classList.contains("is-clicked")) {
+        btn.classList.add("is-clicked");
+        setTimeout(() => btn.classList.remove("is-clicked"), 450);
+      }
+    };
+    document.addEventListener("pointerup", clearPress);
+    document.addEventListener("pointercancel", clearPress);
 
     load().catch((e) => setMsg(String(e), false));
   </script>
