@@ -32,13 +32,22 @@ def parse_quota_headers(
     or_rem = _to_int(h.get("x-ratelimit-remaining"))
     or_lim = _to_int(h.get("x-ratelimit-limit"))
 
+    rpd_limit = _to_int(h.get("x-ratelimit-limit-requests-day"))
+    rpm_limit = _to_int(h.get("x-ratelimit-limit-requests-minute"))
+    tpm_limit = _to_int(h.get("x-ratelimit-limit-tokens"))
+    lim_req = _to_int(h.get("x-ratelimit-limit-requests"))
+
     if provider == "groq":
-        # Groq: remaining-requests is RPD; remaining-tokens is TPM.
+        # Groq: remaining-requests / limit-requests are RPD; tokens are TPM.
         if rpd is None and rem_req is not None:
             rpd = rem_req
+        if rpd_limit is None and lim_req is not None:
+            rpd_limit = lim_req
     else:
         if rpm is None and rem_req is not None and rpd is None:
             rpm = rem_req
+        if rpm_limit is None and lim_req is not None and rpd_limit is None:
+            rpm_limit = lim_req
 
     if or_rem is not None:
         if or_lim is not None and or_lim >= 40:
@@ -52,6 +61,12 @@ def parse_quota_headers(
         out["rpm"] = rpm
     if tpm is not None:
         out["tpm"] = tpm
+    if rpd_limit is not None:
+        out["rpd_limit"] = rpd_limit
+    if rpm_limit is not None:
+        out["rpm_limit"] = rpm_limit
+    if tpm_limit is not None:
+        out["tpm_limit"] = tpm_limit
     return out
 
 

@@ -23,11 +23,14 @@ def test_parse_groq_headers_are_rpd_and_tpm():
     parsed = parse_quota_headers(
         {
             "x-ratelimit-remaining-requests": "412",
+            "x-ratelimit-limit-requests": "1000",
             "x-ratelimit-remaining-tokens": "9000",
         },
         provider="groq",
     )
-    assert parsed == {"rpd": 412, "tpm": 9000}
+    assert parsed["rpd"] == 412
+    assert parsed["rpd_limit"] == 1000
+    assert parsed["tpm"] == 9000
 
 
 def test_parse_openrouter_error_headers():
@@ -51,6 +54,18 @@ async def test_live_rpd_overrides_local_and_blocks():
     await lim.ingest_quota("llama-3.3-70b-versatile", {"rpd": 0}, provider="groq")
     rem = await lim.remaining_budget("llama-3.3-70b-versatile")
     assert rem["rpd"] == 0
-    assert rem["rpm"] == 30
+    assert rem["rpm"] == 0
     assert not await lim.can_proceed("llama-3.3-70b-versatile", 1)
     assert lim.quota_source("llama-3.3-70b-versatile") == "headers"
+
+
+@pytest.mark.asyncio
+async def test_cooldown_shows_rpd_finished():
+    from llmcascade.cascade import ModelCooldownTracker
+
+    cool = ModelCooldownTracker()
+    await cool.apply_from_error("llama-3.3-70b-versatile", status_code=404, body="not found")
+    lim = RateLimiter([_model()], cooldowns=cool)
+    rem = await lim.remaining_budget("llama-3.3-70b-versatile")
+    assert rem["rpd"] == 0
+    assert rem["rpm"] == 0

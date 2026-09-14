@@ -271,8 +271,8 @@ class GeminiCascadeManager:
         until = cooldown_until(kind, now=now, headers=headers)
         if until is None:
             return
-        # Daily/credit quota is project-wide — lock the whole Flash family.
-        targets = list(self.models) if kind in ("daily", "credit") else [model_id]
+        # Billing/credit is project-wide. Google RPD is per model ID — do not fan out daily.
+        targets = list(self.models) if kind == "credit" else [model_id]
         async with self._lock:
             for mid in targets:
                 prev = self._cooldowns.get(mid)

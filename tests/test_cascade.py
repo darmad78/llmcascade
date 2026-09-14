@@ -125,7 +125,7 @@ async def test_rpm_cools_only_failed_model():
 
 
 @pytest.mark.asyncio
-async def test_daily_quota_cools_whole_family():
+async def test_daily_quota_cools_only_that_model():
     mgr = GeminiCascadeManager(["a", "b", "c"])
     await mgr.apply_cooldown(
         "a",
@@ -133,30 +133,32 @@ async def test_daily_quota_cools_whole_family():
         body="You exceeded your current quota, please check your plan and billing details.",
     )
     assert await mgr.is_cooling("a")
-    assert await mgr.is_cooling("b")
-    assert await mgr.is_cooling("c")
-    assert not await mgr.any_available()
+    assert not await mgr.is_cooling("b")
+    assert not await mgr.is_cooling("c")
+    assert await mgr.any_available()
 
 
 @pytest.mark.asyncio
-async def test_google_quota_429_stops_family_in_same_run():
+async def test_google_quota_429_falls_through_to_next_model():
     mgr = GeminiCascadeManager(["a", "b"])
     calls: list[str] = []
 
     async def send(model_id: str, prompt: str) -> LLMResponse:
         calls.append(model_id)
-        raise ProviderError(
-            "You exceeded your current quota, please check your plan and billing details.",
-            status_code=429,
-            retryable=False,
-            model=model_id,
-        )
+        if model_id == "a":
+            raise ProviderError(
+                "You exceeded your current quota, please check your plan and billing details.",
+                status_code=429,
+                retryable=False,
+                model=model_id,
+            )
+        return LLMResponse(text="ok", model=model_id, tokens_used=1)
 
-    with pytest.raises(ProviderError):
-        await mgr.run(send, "hi")
-    assert calls == ["a"]
+    resp = await mgr.run(send, "hi")
+    assert resp.model == "b"
+    assert calls == ["a", "b"]
     assert await mgr.is_cooling("a")
-    assert await mgr.is_cooling("b")
+    assert not await mgr.is_cooling("b")
 
 
 @pytest.mark.asyncio

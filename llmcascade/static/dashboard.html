@@ -419,6 +419,7 @@
             <tr>
               <th>Cascade model</th>
               <th>State</th>
+              <th>Learned RPD</th>
               <th>Cooldown</th>
               <th>Ready at (UTC)</th>
             </tr>
@@ -509,10 +510,25 @@
       if (!m.free_tier_verified) {
         return `<span class="free-unverified" title="${escapeHtml(m.free_tier_note || "")}">unverified</span>`;
       }
+      const learned = m.learned || {};
+      const members = m.learned_members || {};
+      const memberRows = Object.values(members);
+      let b = m.free_left || m.budget || {};
+      let lim = Object.assign({}, m.limits || {});
+      if (learned.learned_rpd != null) {
+        lim.rpd = learned.learned_rpd;
+        b = Object.assign({}, b, { rpd: learned.rpd_remaining ?? 0 });
+      } else if (memberRows.length) {
+        const caps = memberRows.filter((r) => r.learned_rpd != null);
+        if (caps.length) {
+          lim.rpd = caps.reduce((s, r) => s + (r.learned_rpd || 0), 0);
+          b = Object.assign({}, b, {
+            rpd: caps.reduce((s, r) => s + (r.rpd_remaining || 0), 0),
+          });
+        }
+      }
       const cd = m.cooldown || {};
       const cooling = (cd.remaining_s || 0) > 0;
-      const b = m.free_left || m.budget || {};
-      const lim = m.limits || {};
       const parts = [
         ["rpd", b.rpd, lim.rpd],
         ["rpm", b.rpm, lim.rpm],
@@ -521,12 +537,17 @@
         const c = cap ?? "—";
         return `<span>${k} <strong>${escapeHtml(l)}</strong><span class="cap">/${escapeHtml(c)}</span></span>`;
       });
-      const cool = cooling
-        ? `<div class="free-note">${escapeHtml(cd.kind || "cooldown")} · ${escapeHtml(fmtDuration(cd.remaining_s))}</div>`
-        : (m.quota_source === "headers" || m.quota_source === "openrouter_key")
-          ? `<div class="free-note">live</div>`
-          : "";
-      return `<div class="free-left">${parts.join(" · ")}</div>${cool}`;
+      let note = "";
+      if (cooling) {
+        note = `${escapeHtml(cd.kind || "cooldown")} · this model RPD finished · ${escapeHtml(fmtDuration(cd.remaining_s))}`;
+      } else if (m.quota_source === "headers" || m.quota_source === "openrouter_key") {
+        note = "live provider remaining";
+      } else if (learned.learned_rpd != null || memberRows.some((r) => r.learned_rpd != null)) {
+        note = "learned from provider 429";
+      } else {
+        note = "no cap yet — not locally RPD-limited";
+      }
+      return `<div class="free-left">${parts.join(" · ")}</div><div class="free-note">${note}</div>`;
     }
 
     function fmtFreeTier(m) {
@@ -601,9 +622,14 @@
         const state = isReady ? "ready" : "cooling";
         const cool = isReady ? "—" : fmtDuration(rem);
         const readyAt = isReady ? "—" : (at[id] || "—");
+        const L = (g.learned || {})[id] || {};
+        const q = L.learned_rpd != null
+          ? `${L.rpd_remaining ?? "—"}/${L.learned_rpd} (ok ${L.ok ?? 0})`
+          : `ok ${L.ok ?? 0} · cap unknown`;
         return `<tr>
           <td class="name">${escapeHtml(id)}</td>
           <td><span class="pill ${isReady ? "ok" : "cooling"}">${state}</span></td>
+          <td class="budget">${escapeHtml(q)}</td>
           <td class="budget">${escapeHtml(cool)}</td>
           <td class="budget">${escapeHtml(readyAt)}</td>
         </tr>`;

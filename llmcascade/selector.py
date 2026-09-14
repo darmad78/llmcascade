@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from llmcascade.adapters.base import LLMResponse
 from llmcascade.exceptions import AllModelsExhaustedError, ProviderError, safe_error_message
+from llmcascade.cascade import classify_failure
 from llmcascade.failures import classify_recorded_failure
 from llmcascade.event_log import events
 from llmcascade.metrics import log, metrics
@@ -46,12 +47,14 @@ class ModelSelector:
         stats: StatsStore | NullStatsStore | None = None,
         *,
         cooldowns: Any | None = None,
+        quota_learn: Any | None = None,
     ) -> None:
         self.registry = list(registry)
         self.rate_limiter = rate_limiter
         self.strategy = strategy
         self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
         self.cooldowns = cooldowns
+        self.quota_learn = quota_learn
         self._rr_index = 0
 
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
@@ -206,6 +209,10 @@ class ModelSelector:
             await self.rate_limiter.ingest_headers(
                 model.name, getattr(resp, "headers", None) or None, provider=model.provider
             )
+            if self.quota_learn is not None:
+                self.quota_learn.record_success(
+                    (resp.model or model.name), model.provider
+                )
             return self._with_skipped(resp, skipped_models)
 
         async def fail(model: ModelConfig, exc: ProviderError) -> None:
@@ -231,6 +238,11 @@ class ModelSelector:
             await self.rate_limiter.ingest_headers(
                 model.name, getattr(exc, "headers", None), provider=model.provider
             )
+            if self.quota_learn is not None:
+                kind = classify_failure(exc.status_code, str(exc))
+                self.quota_learn.record_limit(
+                    (exc.model or model.name), model.provider, kind
+                )
             if self.cooldowns is not None and not (
                 model.provider == "gemini" and bool(model.cascade)
             ):

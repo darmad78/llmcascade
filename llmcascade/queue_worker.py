@@ -14,7 +14,7 @@ from llmcascade.event_log import events
 from llmcascade.exceptions import QueueFullError
 from llmcascade.health import health_cache
 from llmcascade.metrics import metrics
-from llmcascade.rate_limiter import RateLimiter
+from llmcascade.quota_learn import QuotaLearner
 from llmcascade.registry import ModelConfig, key_source, list_all_models, load_registry
 from llmcascade.selector import ModelSelector, Strategy
 from llmcascade.stats_store import NullStatsStore, StatsStore
@@ -66,6 +66,7 @@ class RouterClient:
         self._strategy = strategy
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
         self.cooldowns = cooldowns or ModelCooldownTracker()
+        self.quota_learn = QuotaLearner()
         self.rate_limiter = rate_limiter or RateLimiter(
             self.registry,
             gemini_cascade=self.gemini_cascade,
@@ -82,6 +83,7 @@ class RouterClient:
             strategy=strategy,
             stats=self.stats,
             cooldowns=self.cooldowns,
+            quota_learn=self.quota_learn,
         )
         self._workers_n = workers
         self._max_queue = max_queue
@@ -123,6 +125,7 @@ class RouterClient:
         self.selector.registry = list(new_registry)
         self.selector.rate_limiter = self.rate_limiter
         self.selector.cooldowns = self.cooldowns
+        self.selector.quota_learn = self.quota_learn
         self.selector.stats = self.stats
         self.selector.strategy = self._strategy
         return len(new_registry)
@@ -287,6 +290,7 @@ class RouterClient:
         gemini_family_cooling = isinstance(gemini_status, dict) and not bool(
             gemini_status.get("family_ready", True)
         )
+        learned = self.quota_learn.snapshot()
         models = []
         active_names = {m.name for m in self.registry}
         all_models = list_all_models(self._models_path) if self._models_path else list(self.registry)
@@ -351,6 +355,20 @@ class RouterClient:
                 "enabled": getattr(m, "enabled", True),
                 "custom": getattr(m, "custom", False),
             }
+            entry["learned"] = learned.get(m.name)
+            if m.cascade:
+                entry["learned_members"] = {
+                    mid: learned[mid] for mid in m.cascade if mid in learned
+                }
+            if m.name in active_names:
+                ql = self.rate_limiter.quota_limits(m.name)
+                if ql:
+                    lim = dict(entry["limits"])
+                    if "rpd" in ql:
+                        lim["rpd"] = ql["rpd"]
+                    if "rpm" in ql:
+                        lim["rpm"] = ql["rpm"]
+                    entry["limits"] = lim
             if m.cascade:
                 entry["cascade"] = list(m.cascade)
             models.append(entry)
@@ -365,6 +383,7 @@ class RouterClient:
                 "budget": g_budget,
                 "requests_total": snap["requests_total"].get("gemini", 0),
                 "failures_total": snap["failures_total"].get("gemini", 0),
+                "learned": {mid: learned[mid] for mid in gemini.get("models") or [] if mid in learned},
             }
         return {
             "models": models,

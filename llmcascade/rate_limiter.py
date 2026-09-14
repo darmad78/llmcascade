@@ -55,6 +55,7 @@ class RateLimiter:
         self.gemini_cascade = gemini_cascade
         self.cooldowns = cooldowns
         self._live: dict[str, dict[str, int]] = {}
+        self._live_limits: dict[str, dict[str, int]] = {}
         self._live_source: dict[str, str] = {}
         self._live_lock = asyncio.Lock()
         self._live_refresh_at = 0.0
@@ -94,15 +95,25 @@ class RateLimiter:
     ) -> None:
         if not parsed:
             return
+        remaining = {k: v for k, v in parsed.items() if not k.endswith("_limit")}
+        caps = {}
+        for key, val in parsed.items():
+            if key.endswith("_limit"):
+                caps[key[: -len("_limit")]] = val
         names = [model_name]
         if fanout and provider:
             names = [n for n, m in self._models.items() if m.provider == provider] or names
         async with self._live_lock:
             for name in names:
-                prev = dict(self._live.get(name) or {})
-                prev.update(parsed)
-                self._live[name] = prev
-                self._live_source[name] = source
+                if remaining:
+                    prev = dict(self._live.get(name) or {})
+                    prev.update(remaining)
+                    self._live[name] = prev
+                    self._live_source[name] = source
+                if caps:
+                    prev_c = dict(self._live_limits.get(name) or {})
+                    prev_c.update(caps)
+                    self._live_limits[name] = prev_c
 
     async def ingest_headers(
         self,
@@ -116,6 +127,9 @@ class RateLimiter:
 
     def quota_source(self, model_name: str) -> str:
         return self._live_source.get(model_name) or "local"
+
+    def quota_limits(self, model_name: str) -> dict[str, int]:
+        return dict(self._live_limits.get(model_name) or {})
 
     async def refresh_live_quotas(self, client: Any, models: list[ModelConfig] | None = None) -> None:
         """Pull Groq header remaining and OpenRouter key payload. Cached ~20s."""
@@ -192,13 +206,9 @@ class RateLimiter:
         async with self._lock(model_name):
             now = time.monotonic()
             limits = model.limits
+            # YAML rpd/rpm/tpm are guesses — do not refuse until the provider 429s
+            # (cooldown / live headers) or local rps would stampede.
             if await self._count(model_name, "rps", now) >= limits.rps:
-                return False
-            if await self._count(model_name, "rpm", now) >= limits.rpm:
-                return False
-            if await self._count(model_name, "rpd", now) >= limits.rpd:
-                return False
-            if await self._count(model_name, "tpm", now) + tokens_estimate > limits.tpm:
                 return False
             return True
 
@@ -223,12 +233,6 @@ class RateLimiter:
             now = time.monotonic()
             limits = model.limits
             if await self._count(model_name, "rps", now) >= limits.rps:
-                return False
-            if await self._count(model_name, "rpm", now) >= limits.rpm:
-                return False
-            if await self._count(model_name, "rpd", now) >= limits.rpd:
-                return False
-            if await self._count(model_name, "tpm", now) + tokens_estimate > limits.tpm:
                 return False
             for metric, amount in (
                 ("rps", 1),
@@ -263,6 +267,19 @@ class RateLimiter:
         model = self._models.get(model_name)
         if model is None:
             return {}
+        blocked = False
+        if self.cooldowns is not None and await self.cooldowns.is_cooling(model_name):
+            blocked = True
+        cascade = self.gemini_cascade
+        if (
+            cascade is not None
+            and model.provider == "gemini"
+            and getattr(cascade, "logical_name", None) == model_name
+            and not await cascade.any_available()
+        ):
+            blocked = True
+        if self._live_exhausted(model_name, 1):
+            blocked = True
         async with self._lock(model_name):
             now = time.monotonic()
             lim = model.limits
@@ -282,6 +299,15 @@ class RateLimiter:
             for metric in ("rpm", "rpd", "tpm"):
                 if metric in live:
                     out[metric] = live[metric]
+            caps = self._live_limits.get(model_name) or {}
+            if "rpd" in caps:
+                out["limit_rpd"] = caps["rpd"]
+            if "rpm" in caps:
+                out["limit_rpm"] = caps["rpm"]
+            if blocked:
+                out["rpd"] = 0
+                out["rpm"] = 0
+                out["rps"] = 0
             return out
 
 

@@ -39,10 +39,10 @@ async def test_rps_blocks():
 
 
 @pytest.mark.asyncio
-async def test_tpm_blocks_on_estimate():
-    lim = RateLimiter([_model(limits=Limits(rpd=100, rpm=10, rps=10, tpm=50, max_context=4096))])
-    assert not await lim.can_proceed("m1", 51)
-    assert await lim.can_proceed("m1", 50)
+async def test_yaml_rpd_rpm_tpm_do_not_block():
+    lim = RateLimiter([_model(limits=Limits(rpd=1, rpm=1, rps=10, tpm=50, max_context=4096))])
+    await lim.record_usage("m1", 1)
+    assert await lim.can_proceed("m1", 51)
 
 
 @pytest.mark.asyncio

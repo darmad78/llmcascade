@@ -21,7 +21,7 @@ models:
     endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
     auth_env_var: GOOGLE_API_KEY
     free_tier_verified: true
-    free_tier_note: "Gemini Free Flash family · ~1,500 RPD · ~10 RPM (project/model may differ)"
+    free_tier_note: "Gemini Free: RPD is per model in AI Studio (often ~20 preview / ~250 Flash), not 1,500 shared"
     cascade:
       - gemini-3.6-flash
       - gemini-3.5-flash
