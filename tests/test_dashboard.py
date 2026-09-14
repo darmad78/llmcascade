@@ -38,6 +38,8 @@ def test_event_log_records_type():
 def test_classify_health():
     assert _classify(200, None)[0] == "ok"
     assert _classify(405, None)[0] == "ok"
+    assert _classify(404, None)[0] == "down"
+    assert _classify(429, None)[0] == "warn"
     assert _classify(401, None)[0] == "auth_error"
     assert _classify(503, None)[0] == "down"
     assert _classify(None, TimeoutError())[0] == "down"

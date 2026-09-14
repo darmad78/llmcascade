@@ -92,6 +92,10 @@ def test_yaml_embed_catalog_is_wide_and_wired():
     from llmcascade.registry import _read_yaml_models, default_models_path
 
     models = _read_yaml_models(default_models_path())
+    names = [m.name for m in models]
+    assert len(names) == len(set(names))
+    for m in models:
+        assert m.provider in _ADAPTERS
     embeds = [m for m in models if "embed" in m.capabilities]
     names = [m.name for m in embeds]
     assert len(names) >= 25

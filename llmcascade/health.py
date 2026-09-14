@@ -56,6 +56,10 @@ def _classify(status_code: int | None, exc: Exception | None) -> tuple[str, str]
     assert status_code is not None
     if status_code in (401, 403):
         return "auth_error", f"HTTP {status_code}"
+    if status_code == 429:
+        return "warn", f"HTTP {status_code}"
+    if status_code == 404:
+        return "down", f"HTTP {status_code}"
     # Reachable: 2xx/3xx/4xx (incl. 405 Method Not Allowed on GET)
     if status_code < 500:
         return "ok", f"HTTP {status_code}"

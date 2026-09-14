@@ -93,7 +93,23 @@
     <p class="note warn">Key tier picks the free or paid key pool. Models with tier <strong>paid</strong> are excluded from auto-select unless <code>ALLOW_PAID=true</code>.</p>
 
     <section class="panel">
+      <h2>Add a cloud key</h2>
+      <p class="note">Search a provider, paste only the API key. Models for that cloud enable on save.</p>
+      <div class="form-grid">
+        <label>Search / pick
+          <input id="p-search" type="text" list="p-catalog" placeholder="groq, fireworks, gemini…" autocomplete="off" />
+          <datalist id="p-catalog"></datalist>
+        </label>
+        <label>Free key<input id="p-key" type="password" placeholder="paste key" /></label>
+      </div>
+      <div class="actions">
+        <button type="button" id="p-add">Save key</button>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>Provider keys</h2>
+      <p class="note"><input id="p-filter" type="text" placeholder="Filter table…" style="width:min(22rem,100%)" /></p>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -174,8 +190,11 @@
       renderProviders(data.providers || []);
       renderModels(data.models || []);
       $("m-capability").value = CAPABILITY;
+      const options = data.provider_options || [];
       const sel = $("m-provider");
-      sel.innerHTML = (data.provider_options || []).map((p) => `<option value="${p}">${p}</option>`).join("");
+      sel.innerHTML = options.map((p) => `<option value="${p}">${p}</option>`).join("");
+      $("p-catalog").innerHTML = options.map((p) => `<option value="${p}"></option>`).join("");
+      filterProviderRows();
     }
 
     function renderProviders(rows) {
@@ -383,6 +402,37 @@
       setMsg(`Deleted ${name}`, true);
       await load();
     }
+
+    function filterProviderRows() {
+      const q = (($("p-filter") && $("p-filter").value) || "").trim().toLowerCase();
+      $("provider-rows").querySelectorAll("tr").forEach((tr) => {
+        const hay = (tr.dataset.provider || "").toLowerCase() + " " + (tr.textContent || "").toLowerCase();
+        tr.style.display = !q || hay.includes(q) ? "" : "none";
+      });
+    }
+
+    async function addPickedKey() {
+      const provider = $("p-search").value.trim().toLowerCase();
+      const val = $("p-key").value.trim();
+      if (!provider || !val) {
+        setMsg("Pick a provider and paste a key", false);
+        return;
+      }
+      setMsg(`Saving key for ${provider}…`, true);
+      const res = await fetch("/admin/providers", {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify({ provider, replace_free_key: val, csrf_token: CSRF_TOKEN }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg(data.detail || "save failed", false); return; }
+      $("p-key").value = "";
+      setMsg(`Saved key for ${provider}; ${data.models} active model(s).`, true);
+      await load();
+    }
+
+    $("p-add").addEventListener("click", () => addPickedKey().catch((e) => setMsg(String(e), false)));
+    $("p-filter").addEventListener("input", filterProviderRows);
 
     $("m-save").addEventListener("click", async () => {
       try {

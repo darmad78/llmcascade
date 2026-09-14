@@ -17,7 +17,7 @@ from llmcascade.metrics import metrics
 from llmcascade.quota_learn import QuotaLearner
 from llmcascade.rate_limiter import RateLimiter
 from llmcascade.registry import ModelConfig, key_source, list_all_models, load_registry
-from llmcascade.selector import ModelSelector, Strategy
+from llmcascade.selector import ModelSelector, Strategy, strategy_from_env
 from llmcascade.stats_store import NullStatsStore, StatsStore
 
 try:
@@ -49,7 +49,7 @@ class RouterClient:
         registry: list[ModelConfig] | None = None,
         *,
         models_path: str | None = None,
-        strategy: Strategy = "weighted",
+        strategy: Strategy | None = None,
         workers: int = 4,
         max_queue: int = 100,
         rate_limiter: RateLimiter | None = None,
@@ -64,7 +64,7 @@ class RouterClient:
             else load_registry(models_path, allow_empty=allow_empty)
         )
         self._models_path = models_path
-        self._strategy = strategy
+        self._strategy = strategy if strategy is not None else strategy_from_env()
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
         self.cooldowns = cooldowns or ModelCooldownTracker()
         self.quota_learn = QuotaLearner()
@@ -81,7 +81,7 @@ class RouterClient:
         self.selector = ModelSelector(
             self.registry,
             self.rate_limiter,
-            strategy=strategy,
+            strategy=self._strategy,
             stats=self.stats,
             cooldowns=self.cooldowns,
             quota_learn=self.quota_learn,
@@ -313,6 +313,17 @@ class RouterClient:
                     free_left = {k: 0 for k in ("rps", "rpm", "rpd", "tpm")}
                 else:
                     free_left = budget
+            left = free_left if free_left is not None else (budget if m.name in active_names else {})
+            rpd_left = left.get("rpd") if isinstance(left, dict) else None
+            rpm_left = left.get("rpm") if isinstance(left, dict) else None
+            depleted = row_cooling or (
+                m.name in active_names
+                and (
+                    (rpd_left is not None and int(rpd_left) <= 0)
+                    or (rpm_left is not None and int(rpm_left) <= 0)
+                )
+            )
+            routable = bool(m.name in active_names and not depleted)
             entry: dict[str, Any] = {
                 "name": m.name,
                 "provider": m.provider,
@@ -333,7 +344,8 @@ class RouterClient:
                 "is_next": bool(
                     ("embed" in m.capabilities and next_embed and next_embed.name == m.name)
                     or ("chat" in m.capabilities and next_model and next_model.name == m.name)
-                ),
+                )
+                and not depleted,
                 "requests_total": snap["requests_total"].get(m.name, 0),
                 "failures_total": snap["failures_total"].get(m.name, 0),
                 "health": health.get(m.name, {"state": "unknown"}),
@@ -351,6 +363,8 @@ class RouterClient:
                 "key_set": src != "none" or key_is_set(m.provider),
                 "key_source": src,
                 "active": m.name in active_names,
+                "routable": routable,
+                "depleted": depleted,
                 "free_paid": getattr(m, "key_tier", None) or get_free_paid(m.provider),
                 "weight": getattr(m, "weight", 1),
                 "enabled": getattr(m, "enabled", True),

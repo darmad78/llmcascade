@@ -145,6 +145,9 @@ Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats?capability=chat\|embed`, `/
 | Cohere | `COHERE_API_KEY` |
 | NVIDIA NIM | `NVIDIA_NIM_API_KEY` |
 | DeepInfra | `DEEPINFRA_API_KEY` |
+| Fireworks | `FIREWORKS_API_KEY` |
+| Novita | `NOVITA_API_KEY` |
+| Hyperbolic | `HYPERBOLIC_API_KEY` |
 | Jina | `JINA_API_KEY` |
 | Voyage | `VOYAGE_API_KEY` |
 | Nomic | `NOMIC_API_KEY` |
@@ -153,7 +156,7 @@ Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats?capability=chat\|embed`, `/
 
 IDs and free-tier limits: [`llmcascade/models.yaml`](llmcascade/models.yaml). Missing keys skip that provider. Env vars **override** UI-stored keys.
 
-Chat fallback: pick eligible model → retry same model once on timeout/5xx → next model on 429 / hard fail → `AllModelsExhaustedError`. Round-robin by default (`least_used`, `priority_first` available). Paid-tier models stay out of auto-select unless `ALLOW_PAID=true`.
+Chat fallback: pick eligible model → retry same model once on timeout/5xx → next model on 429 / hard fail → `AllModelsExhaustedError`. Default **headroom**: most remaining RPD (live headers, then learned quota, then YAML), sticky to the last success **per `notes`**. Opt-in: `LLMCASCADE_STRATEGY=round_robin|least_used|priority_first|weighted`. Paid-tier models stay out of auto-select unless `ALLOW_PAID=true`.
 
 ## Library (`RouterClient`)
 
@@ -180,7 +183,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`RouterClient(models_path=..., strategy="round_robin", workers=4, max_queue=100)`.
+`RouterClient(models_path=..., strategy="headroom", workers=4, max_queue=100)`.
 
 ## Troubleshooting
 

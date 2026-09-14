@@ -191,8 +191,9 @@ models:
     capabilities: [chat]
     priority: 120
 
-  - name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  - name: deepinfra/llama-3.1-8b-instruct
     provider: deepinfra
+    api_model: meta-llama/Meta-Llama-3.1-8B-Instruct
     endpoint: https://api.deepinfra.com/v1/openai/chat/completions
     auth_env_var: DEEPINFRA_API_KEY
     free_tier_verified: false
@@ -205,6 +206,53 @@ models:
       max_context: 8192
     capabilities: [chat]
     priority: 130
+
+  - name: accounts/fireworks/models/llama-v3p1-8b-instruct
+    provider: fireworks
+    endpoint: https://api.fireworks.ai/inference/v1/chat/completions
+    auth_env_var: FIREWORKS_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Fireworks trial/free credits — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 60000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 140
+
+  - name: novita/llama-3.1-8b-instruct
+    provider: novita
+    api_model: meta-llama/llama-3.1-8b-instruct
+    endpoint: https://api.novita.ai/v3/openai/chat/completions
+    auth_env_var: NOVITA_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Novita free credits rotate — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 60000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 150
+
+  - name: hyperbolic/llama-3.1-8b-instruct
+    provider: hyperbolic
+    api_model: meta-llama/Meta-Llama-3.1-8B-Instruct
+    endpoint: https://api.hyperbolic.xyz/v1/chat/completions
+    auth_env_var: HYPERBOLIC_API_KEY
+    free_tier_verified: false
+    free_tier_note: "Hyperbolic free credits rotate — counters unverified"
+    limits:
+      rpd: 200
+      rpm: 30
+      rps: 1
+      tpm: 60000
+      max_context: 8192
+    capabilities: [chat]
+    priority: 160
 
   # --- Embeddings (separate budgets; vectors returned, never stored) ---
   - name: gemini-embedding-001

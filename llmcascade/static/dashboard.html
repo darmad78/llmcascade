@@ -134,10 +134,11 @@
     .auth_error, .bad, .cooling { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
     .down { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
     .unknown, .ready { color: var(--unk); border-color: color-mix(in srgb, var(--unk) 35%, transparent); background: color-mix(in srgb, var(--unk) 12%, transparent); }
-    .warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+    .warn, .depleted, .quota { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
     .budget { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
     .free-note { color: var(--muted); font-size: 0.72rem; margin-top: 0.2rem; max-width: 22rem; }
     .free-left { font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+    .free-left.depleted, .free-left.depleted .cap, .free-note.depleted { color: var(--warn); }
     .free-left .cap { color: var(--muted); }
     .free-unverified { color: var(--muted); font-size: 0.78rem; font-style: italic; }
     tr.next-pick td {
@@ -547,7 +548,9 @@
       } else {
         note = "no cap yet — not locally RPD-limited";
       }
-      return `<div class="free-left">${parts.join(" · ")}</div><div class="free-note">${note}</div>`;
+      const dead = cooling || Number(b.rpd) === 0 || Number(b.rpm) === 0 || m.depleted;
+      const wrap = dead ? "depleted" : "";
+      return `<div class="free-left ${wrap}">${parts.join(" · ")}</div><div class="free-note ${wrap}">${note}</div>`;
     }
 
     function fmtFreeTier(m) {
@@ -570,18 +573,21 @@
       }
       tb.innerHTML = models.map((m) => {
         const h = m.health || {};
-        const state = h.state || "unknown";
+        let state = h.state || "unknown";
+        if (m.depleted && state === "ok") state = "warn";
         const tip = [h.message, h.latency_ms != null ? `${h.latency_ms}ms` : null]
           .filter(Boolean).join(" · ");
-        const isNext = m.is_next || (nextPick && nextPick.name === m.name);
+        const isNext = m.routable && (m.is_next || (nextPick && nextPick.name === m.name));
         const nextBadge = isNext ? `<span class="next-badge">next</span>` : "";
+        const activeCls = m.routable ? "ok" : (m.active ? "warn" : "unk");
+        const activeLbl = m.routable ? "yes" : (m.active ? "quota" : "no");
         return `<tr class="${isNext ? "next-pick" : ""}">
           <td>
             <div class="name">${escapeHtml(m.name)}${nextBadge}</div>
             <div class="provider">${escapeHtml(m.provider)} · p${m.priority}</div>
           </td>
           <td class="budget">${m.key_set ? escapeHtml(m.key_source || "set") : "none"}</td>
-          <td><span class="pill ${m.active ? "ok" : "unk"}">${m.active ? "yes" : "no"}</span></td>
+          <td><span class="pill ${activeCls}">${activeLbl}</span></td>
           <td>${escapeHtml(m.free_paid || "free")}</td>
           <td><span class="pill ${state}" title="${escapeHtml(tip)}">${escapeHtml(state)}</span></td>
           <td>${fmtFreeTier(m)}</td>
@@ -824,6 +830,20 @@
       return `${PROJECT_CONTEXT}\n\nConversation so far:\n${turns}\nAssistant:`;
     }
 
+    function httpDetail(data, status) {
+      const d = data && data.detail;
+      if (typeof d === "string" && d.trim()) return d;
+      if (d && typeof d === "object") {
+        const msg = d.message || d.detail;
+        const skipped = Array.isArray(d.skipped_models) && d.skipped_models.length
+          ? " skipped=" + d.skipped_models.map((s) => s.model + ":" + s.reason).join(",")
+          : "";
+        if (msg) return String(msg) + skipped;
+        try { return JSON.stringify(d); } catch { /* ignore */ }
+      }
+      return `HTTP ${status}`;
+    }
+
     async function sendChat(text) {
       const input = $("chat-input");
       const btn = $("chat-send");
@@ -850,7 +870,7 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const detail = data.detail || `HTTP ${res.status}`;
+          const detail = httpDetail(data, res.status);
           chatHistory.push({ role: "assistant", content: String(detail), error: true });
         } else {
           chatHistory.push({

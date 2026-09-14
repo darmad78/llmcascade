@@ -128,6 +128,12 @@ class RateLimiter:
     def quota_source(self, model_name: str) -> str:
         return self._live_source.get(model_name) or "local"
 
+    def live_rpd(self, model_name: str) -> int | None:
+        live = self._live.get(model_name) or {}
+        if "rpd" not in live:
+            return None
+        return max(0, int(live["rpd"]))
+
     def quota_limits(self, model_name: str) -> dict[str, int]:
         return dict(self._live_limits.get(model_name) or {})
 

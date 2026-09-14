@@ -9,10 +9,13 @@ from llmcascade.adapters.cloudflare_adapter import CloudflareAdapter
 from llmcascade.adapters.cohere_adapter import CohereAdapter
 from llmcascade.adapters.deepinfra_adapter import DeepInfraAdapter
 from llmcascade.adapters.deepseek_adapter import DeepSeekAdapter
+from llmcascade.adapters.fireworks_adapter import FireworksAdapter
 from llmcascade.adapters.gemini_adapter import GeminiAdapter
+from llmcascade.adapters.hyperbolic_adapter import HyperbolicAdapter
 from llmcascade.adapters.groq_adapter import GroqAdapter
 from llmcascade.adapters.huggingface_adapter import HuggingFaceAdapter
 from llmcascade.adapters.mistral_adapter import MistralAdapter
+from llmcascade.adapters.novita_adapter import NovitaAdapter
 from llmcascade.adapters.nvidia_adapter import NvidiaAdapter
 from llmcascade.adapters.openrouter_adapter import OpenRouterAdapter
 from llmcascade.adapters.sambanova_adapter import SambaNovaAdapter
@@ -59,6 +62,9 @@ def _env(monkeypatch):
         (HuggingFaceAdapter, "huggingface", "https://router.huggingface.co/v1/chat/completions"),
         (NvidiaAdapter, "nvidia", "https://integrate.api.nvidia.com/v1/chat/completions"),
         (DeepInfraAdapter, "deepinfra", "https://api.deepinfra.com/v1/openai/chat/completions"),
+        (FireworksAdapter, "fireworks", "https://api.fireworks.ai/inference/v1/chat/completions"),
+        (NovitaAdapter, "novita", "https://api.novita.ai/v3/openai/chat/completions"),
+        (HyperbolicAdapter, "hyperbolic", "https://api.hyperbolic.xyz/v1/chat/completions"),
     ],
 )
 async def test_openai_compat_success(cls, provider, url):

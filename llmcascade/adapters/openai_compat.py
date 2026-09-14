@@ -179,3 +179,15 @@ class MixedbreadAdapter(OpenAICompatibleAdapter):
 
 class SiliconFlowAdapter(OpenAICompatibleAdapter):
     pass
+
+
+class FireworksAdapter(OpenAICompatibleAdapter):
+    pass
+
+
+class NovitaAdapter(OpenAICompatibleAdapter):
+    pass
+
+
+class HyperbolicAdapter(OpenAICompatibleAdapter):
+    pass

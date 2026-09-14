@@ -116,6 +116,28 @@ class QuotaLearner:
             _save(data)
             return dict(row)
 
+    def remaining_rpd(
+        self,
+        model_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> int | None:
+        """Observed remaining daily calls, or None if this ID has no learned cap."""
+        key = (model_id or "").strip()
+        if not key:
+            return None
+        now = now or datetime.now(timezone.utc)
+        with _LOCK:
+            data = _load()
+            raw = data.get(key)
+            if not isinstance(raw, dict) or raw.get("learned_rpd") is None:
+                return None
+            row = _row(data, key, str(raw.get("provider") or ""), now)
+            rem = row.get("rpd_remaining")
+            if rem is None:
+                return None
+            return max(0, int(rem))
+
     def snapshot(self, now: datetime | None = None) -> dict[str, dict[str, Any]]:
         now = now or datetime.now(timezone.utc)
         with _LOCK:

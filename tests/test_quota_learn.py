@@ -15,6 +15,7 @@ def test_learns_rpd_on_daily_limit(tmp_path, monkeypatch):
     assert row["rpd_remaining"] == 0
     snap = q.snapshot(now=now)
     assert snap["gemini-3.6-flash"]["learned_rpd"] == 2
+    assert q.remaining_rpd("gemini-3.6-flash", now=now) == 0
 
 
 def test_new_pacific_day_resets_ok(tmp_path, monkeypatch):

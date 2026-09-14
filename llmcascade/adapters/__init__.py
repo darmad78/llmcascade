@@ -8,13 +8,16 @@ from llmcascade.adapters.cloudflare_adapter import CloudflareAdapter
 from llmcascade.adapters.cohere_adapter import CohereAdapter
 from llmcascade.adapters.deepinfra_adapter import DeepInfraAdapter
 from llmcascade.adapters.deepseek_adapter import DeepSeekAdapter
+from llmcascade.adapters.fireworks_adapter import FireworksAdapter
 from llmcascade.adapters.gemini_adapter import GeminiAdapter
 from llmcascade.adapters.groq_adapter import GroqAdapter
 from llmcascade.adapters.huggingface_adapter import HuggingFaceAdapter
+from llmcascade.adapters.hyperbolic_adapter import HyperbolicAdapter
 from llmcascade.adapters.jina_adapter import JinaAdapter
 from llmcascade.adapters.mistral_adapter import MistralAdapter
 from llmcascade.adapters.mixedbread_adapter import MixedbreadAdapter
 from llmcascade.adapters.nomic_adapter import NomicAdapter
+from llmcascade.adapters.novita_adapter import NovitaAdapter
 from llmcascade.adapters.nvidia_adapter import NvidiaAdapter
 from llmcascade.adapters.openrouter_adapter import OpenRouterAdapter
 from llmcascade.adapters.sambanova_adapter import SambaNovaAdapter
@@ -33,7 +36,9 @@ _ADAPTERS: dict[str, type[BaseAdapter]] = {
     "mistral": MistralAdapter,
     "sambanova": SambaNovaAdapter,
     "deepseek": DeepSeekAdapter,
+    "fireworks": FireworksAdapter,
     "huggingface": HuggingFaceAdapter,
+    "hyperbolic": HyperbolicAdapter,
     "cloudflare": CloudflareAdapter,
     "cohere": CohereAdapter,
     "nvidia": NvidiaAdapter,
@@ -41,6 +46,7 @@ _ADAPTERS: dict[str, type[BaseAdapter]] = {
     "jina": JinaAdapter,
     "voyage": VoyageAdapter,
     "nomic": NomicAdapter,
+    "novita": NovitaAdapter,
     "mixedbread": MixedbreadAdapter,
     "siliconflow": SiliconFlowAdapter,
 }

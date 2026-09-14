@@ -17,10 +17,22 @@ from llmcascade.registry import ModelConfig
 from llmcascade.stats_store import NullStatsStore, StatsStore
 from llmcascade.tokens import estimate_tokens
 
-Strategy = Literal["round_robin", "least_used", "priority_first", "weighted"]
+Strategy = Literal["headroom", "round_robin", "least_used", "priority_first", "weighted"]
+STRATEGIES: frozenset[str] = frozenset(
+    ("headroom", "round_robin", "least_used", "priority_first", "weighted")
+)
 Executor = Callable[[ModelConfig, str], Awaitable[LLMResponse]]
 
 RETRY_SLEEP_S = 0.25
+
+
+def strategy_from_env(default: Strategy = "headroom") -> Strategy:
+    raw = (os.environ.get("LLMCASCADE_STRATEGY") or default).strip().lower()
+    return raw if raw in STRATEGIES else default  # type: ignore[return-value]
+
+
+def _notes_key(notes: str | None) -> str:
+    return (notes or "").strip() or "_"
 
 
 def allow_paid_models() -> bool:
@@ -43,7 +55,7 @@ class ModelSelector:
         self,
         registry: list[ModelConfig],
         rate_limiter: RateLimiter,
-        strategy: Strategy = "round_robin",
+        strategy: Strategy = "headroom",
         stats: StatsStore | NullStatsStore | None = None,
         *,
         cooldowns: Any | None = None,
@@ -56,6 +68,7 @@ class ModelSelector:
         self.cooldowns = cooldowns
         self.quota_learn = quota_learn
         self._rr_index = 0
+        self._last_good: dict[str, str] = {}
 
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
         paid_ok = allow_paid_models()
@@ -71,10 +84,63 @@ class ModelSelector:
                 out.append(m)
         return out
 
-    async def pick(self, capability: str, tokens_estimate: int = 1) -> ModelConfig | None:
-        eligible = await self._eligible(capability, tokens_estimate)
+    async def _rpd_score(self, model: ModelConfig) -> tuple[int, int]:
+        """Lower source rank wins: live headers, then quota_learn, then YAML."""
+        live = self.rate_limiter.live_rpd(model.name)
+        if live is not None:
+            return (0, live)
+        if self.quota_learn is not None:
+            learned = self.quota_learn.remaining_rpd(model.name)
+            if learned is not None:
+                return (1, learned)
+        rem = await self.rate_limiter.remaining_budget(model.name)
+        return (2, int(rem.get("rpd") or 0))
+
+    async def _headroom_pick(self, eligible: list[ModelConfig]) -> ModelConfig:
+        scored: list[tuple[int, int, int, str, ModelConfig]] = []
+        for m in eligible:
+            src, rpd = await self._rpd_score(m)
+            scored.append((src, -rpd, m.priority, m.name, m))
+        scored.sort()
+        return scored[0][-1]
+
+    def _filter_eligible(
+        self,
+        eligible: list[ModelConfig],
+        exclude: set[str] | None,
+    ) -> list[ModelConfig]:
+        if not exclude:
+            return eligible
+        return [m for m in eligible if m.name not in exclude]
+
+    def _sticky(
+        self,
+        eligible: list[ModelConfig],
+        notes: str | None,
+    ) -> ModelConfig | None:
+        last = self._last_good.get(_notes_key(notes))
+        if not last:
+            return None
+        return next((m for m in eligible if m.name == last), None)
+
+    async def pick(
+        self,
+        capability: str,
+        tokens_estimate: int = 1,
+        *,
+        notes: str | None = None,
+        exclude: set[str] | None = None,
+    ) -> ModelConfig | None:
+        eligible = self._filter_eligible(
+            await self._eligible(capability, tokens_estimate), exclude
+        )
         if not eligible:
             return None
+        if self.strategy == "headroom":
+            sticky = self._sticky(eligible, notes)
+            if sticky is not None:
+                return sticky
+            return await self._headroom_pick(eligible)
         if self.strategy == "priority_first":
             return sorted(eligible, key=lambda m: (m.priority, -m.weight))[0]
         if self.strategy == "least_used":
@@ -88,14 +154,27 @@ class ModelSelector:
             idx = self._rr_index % len(eligible)
             self._rr_index += 1
             return eligible[idx]
-        # weighted (default): chance ∝ weight
         return _weighted_pick(eligible)
 
-    async def peek(self, capability: str, tokens_estimate: int = 1) -> ModelConfig | None:
+    async def peek(
+        self,
+        capability: str,
+        tokens_estimate: int = 1,
+        *,
+        notes: str | None = None,
+        exclude: set[str] | None = None,
+    ) -> ModelConfig | None:
         """Next pick without advancing round-robin state (safe for dashboards)."""
-        eligible = await self._eligible(capability, tokens_estimate)
+        eligible = self._filter_eligible(
+            await self._eligible(capability, tokens_estimate), exclude
+        )
         if not eligible:
             return None
+        if self.strategy == "headroom":
+            sticky = self._sticky(eligible, notes)
+            if sticky is not None:
+                return sticky
+            return await self._headroom_pick(eligible)
         if self.strategy == "priority_first":
             return sorted(eligible, key=lambda m: (m.priority, -m.weight))[0]
         if self.strategy == "least_used":
@@ -118,7 +197,8 @@ class ModelSelector:
         try:
             return await executor(model, prompt)
         except ProviderError as exc:
-            if exc.retryable:
+            # Retry only timeouts/408. 5xx must fail over — a 60s retry blocks the cascade.
+            if exc.retryable and exc.status_code in (None, 408):
                 await asyncio.sleep(RETRY_SLEEP_S)
                 return await executor(model, prompt)
             raise
@@ -213,6 +293,8 @@ class ModelSelector:
                 self.quota_learn.record_success(
                     (resp.model or model.name), model.provider
                 )
+            if capability != "embed":
+                self._last_good[_notes_key(note)] = model.name
             return self._with_skipped(resp, skipped_models)
 
         async def fail(model: ModelConfig, exc: ProviderError) -> None:
@@ -308,13 +390,16 @@ class ModelSelector:
             try:
                 return await succeed(model, await self._try_model(model, prompt, executor))
             except ProviderError as exc:
+                skipped_models.append({"model": model.name, "reason": "error"})
                 await fail(model, exc)
                 if not allow_fallback:
                     break
 
         while include_free:
-            model = await self.pick(capability, tokens_est)
-            if model is None or model.name in tried:
+            model = await self.pick(
+                capability, tokens_est, notes=note, exclude=tried
+            )
+            if model is None:
                 remaining = [
                     m for m in await self._eligible(capability, tokens_est) if m.name not in tried
                 ]
@@ -322,12 +407,14 @@ class ModelSelector:
                     break
                 model = remaining[0]
             if not await self.rate_limiter.try_reserve(model.name, tokens_est):
+                skipped_models.append({"model": model.name, "reason": "budget"})
                 tried.add(model.name)
                 continue
             tried.add(model.name)
             try:
                 return await succeed(model, await self._try_model(model, prompt, executor))
             except ProviderError as exc:
+                skipped_models.append({"model": model.name, "reason": "error"})
                 await fail(model, exc)
                 if not allow_fallback:
                     break

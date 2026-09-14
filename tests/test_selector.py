@@ -8,13 +8,20 @@ from llmcascade.selector import ModelSelector
 from datetime import datetime, timezone
 
 
-def _m(name: str, priority: int = 1, *, key_tier: str = "free") -> ModelConfig:
+def _m(
+    name: str,
+    priority: int = 1,
+    *,
+    key_tier: str = "free",
+    provider: str = "groq",
+    rpd: int = 100,
+) -> ModelConfig:
     return ModelConfig(
         name=name,
-        provider="groq",
+        provider=provider,
         endpoint="https://example.com",
         auth_env_var="GROQ_API_KEY",
-        limits=Limits(rpd=100, rpm=100, rps=100, tpm=100000, max_context=4096),
+        limits=Limits(rpd=rpd, rpm=100, rps=100, tpm=100000, max_context=4096),
         capabilities=["chat"],
         priority=priority,
         key_tier=key_tier,  # type: ignore[arg-type]
@@ -60,7 +67,7 @@ async def test_retryable_retries_same_model(monkeypatch):
     async def executor(model, prompt):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise ProviderError("temp", status_code=503, retryable=True, model="a")
+            raise ProviderError("temp", status_code=None, retryable=True, model="a")
         return LLMResponse(text="ok", model="a", tokens_used=3)
 
     resp = await sel.dispatch_with_fallback("hi", "chat", executor)
@@ -328,4 +335,62 @@ async def test_no_free_cascade_does_not_use_other_registry_models():
             include_free_cascade=False,
         )
     assert calls == ["a"]
-    assert exc.value.skipped_models == []
+    assert exc.value.skipped_models == [{"model": "a", "reason": "error"}]
+
+
+@pytest.mark.asyncio
+async def test_5xx_failsover_without_same_model_retry():
+    models = [_m("a"), _m("b")]
+    sel = ModelSelector(models, RateLimiter(models), strategy="priority_first")
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        if model.name == "a":
+            raise ProviderError("fail a", status_code=503, retryable=True, model="a")
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback("hi", "chat", executor)
+    assert resp.model == "b"
+    assert calls == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_headroom_prefers_live_then_learned_then_yaml():
+    a = _m("a", provider="groq", rpd=1000)
+    b = _m("b", provider="together", rpd=50)
+
+    class Learn:
+        def remaining_rpd(self, model_id, **_kw):
+            return 12 if model_id == "b" else None
+
+    lim = RateLimiter([a, b])
+    sel = ModelSelector([a, b], lim, strategy="headroom", quota_learn=Learn())
+    assert (await sel.pick("chat")).name == "b"
+    await lim.ingest_headers(
+        "a",
+        {"x-ratelimit-remaining-requests-day": "3"},
+        provider="groq",
+    )
+    assert (await sel.pick("chat")).name == "a"
+
+
+@pytest.mark.asyncio
+async def test_last_good_is_per_notes():
+    a = _m("a", provider="groq", rpd=10)
+    b = _m("b", provider="together", rpd=1000)
+    lim = RateLimiter([a, b])
+    sel = ModelSelector([a, b], lim, strategy="headroom")
+
+    async def executor(model, prompt):
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback("hi", "chat", executor, notes="app1")
+    assert resp.model == "b"
+    await lim.ingest_headers(
+        "a",
+        {"x-ratelimit-remaining-requests-day": "9000"},
+        provider="groq",
+    )
+    assert (await sel.pick("chat", notes="app1")).name == "b"
+    assert (await sel.pick("chat", notes="app2")).name == "a"
