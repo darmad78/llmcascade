@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from llmcascade.exceptions import RegistryError
-from llmcascade.registry import load_registry
+from llmcascade.registry import list_providers, load_registry
 
 
 def _write_models(tmp: Path, models: list[dict]) -> Path:
@@ -105,3 +105,14 @@ def test_yaml_embed_catalog_is_wide_and_wired():
     providers = {m.provider for m in embeds}
     for extra in ("voyage", "nomic", "mixedbread", "siliconflow"):
         assert extra in providers
+
+
+def test_list_providers_includes_connection_and_signup():
+    rows = {p["provider"]: p for p in list_providers()}
+    groq = rows["groq"]
+    assert groq["endpoint"].startswith("https://api.groq.com/")
+    assert groq["signup_url"].startswith("https://")
+    assert "api.groq.com" in groq["endpoints"][0]
+    gemini = rows["gemini"]
+    assert len(gemini["endpoints"]) >= 1
+    assert all(p.get("signup_url") for p in rows.values())

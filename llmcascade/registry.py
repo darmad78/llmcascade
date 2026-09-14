@@ -42,6 +42,31 @@ _PROVIDER_AUTH: dict[str, str] = {
     "siliconflow": "SILICONFLOW_API_KEY",
 }
 
+# Console / API-key signup pages (open in a new tab from the admin UI).
+_PROVIDER_SIGNUP: dict[str, str] = {
+    "groq": "https://console.groq.com/keys",
+    "gemini": "https://aistudio.google.com/apikey",
+    "openrouter": "https://openrouter.ai/settings/keys",
+    "together": "https://api.together.ai/settings/api-keys",
+    "cerebras": "https://cloud.cerebras.ai",
+    "mistral": "https://console.mistral.ai/api-keys/",
+    "sambanova": "https://cloud.sambanova.ai",
+    "deepseek": "https://platform.deepseek.com/api_keys",
+    "huggingface": "https://huggingface.co/settings/tokens",
+    "cloudflare": "https://dash.cloudflare.com/?to=/:account/workers-ai",
+    "cohere": "https://dashboard.cohere.com/api-keys",
+    "nvidia": "https://build.nvidia.com/settings/api-keys",
+    "deepinfra": "https://deepinfra.com/dash/api_keys",
+    "fireworks": "https://fireworks.ai/account/api-keys",
+    "novita": "https://novita.ai/settings/key-management",
+    "hyperbolic": "https://app.hyperbolic.xyz/settings",
+    "jina": "https://jina.ai/api-dashboard/",
+    "voyage": "https://dashboard.voyageai.com/",
+    "nomic": "https://atlas.nomic.ai/",
+    "mixedbread": "https://www.mixedbread.com/api-reference/authentication",
+    "siliconflow": "https://cloud.siliconflow.cn/account/ak",
+}
+
 
 class Limits(BaseModel):
     rpd: int = Field(ge=0)
@@ -220,23 +245,31 @@ def list_all_models(path: str | Path | None = None) -> list[ModelConfig]:
 
 
 def list_providers(path: str | Path | None = None) -> list[dict[str, Any]]:
-    """Unique providers with representative auth_env_var."""
+    """Unique providers with representative auth_env_var and connection URLs."""
     seen: dict[str, dict[str, Any]] = {}
     for m in list_all_models(path):
-        if m.provider in seen:
+        row = seen.get(m.provider)
+        if row is None:
+            seen[m.provider] = {
+                "provider": m.provider,
+                "auth_env_var": m.auth_env_var,
+                "needs_account_id": m.provider == "cloudflare",
+                "endpoint": m.endpoint,
+                "endpoints": [m.endpoint],
+                "signup_url": _PROVIDER_SIGNUP.get(m.provider, ""),
+            }
             continue
-        seen[m.provider] = {
-            "provider": m.provider,
-            "auth_env_var": m.auth_env_var,
-            "needs_account_id": m.provider == "cloudflare",
-        }
-    # Ensure known providers appear even with zero models somehow
+        if m.endpoint and m.endpoint not in row["endpoints"]:
+            row["endpoints"].append(m.endpoint)
     for provider, env in _PROVIDER_AUTH.items():
         if provider not in seen:
             seen[provider] = {
                 "provider": provider,
                 "auth_env_var": env,
                 "needs_account_id": provider == "cloudflare",
+                "endpoint": "",
+                "endpoints": [],
+                "signup_url": _PROVIDER_SIGNUP.get(provider, ""),
             }
     return list(seen.values())
 

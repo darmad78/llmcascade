@@ -442,11 +442,15 @@ def providers_catalog(*, capability: str | None = None) -> dict[str, Any]:
         paid_n = int(meta.get("paid_key_count") or 0)
         free_set = free_n > 0 or (src == "env" and env_set)
         paid_set = paid_n > 0
+        endpoints = list(info.get("endpoints") or ([info["endpoint"]] if info.get("endpoint") else []))
         rows.append(
             {
                 "provider": provider,
                 "auth_env_var": info["auth_env_var"],
                 "needs_account_id": info["needs_account_id"],
+                "endpoint": info.get("endpoint") or "",
+                "endpoints": endpoints,
+                "signup_url": info.get("signup_url") or "",
                 "key_set": src != "none",
                 "key_source": src,
                 "free_key_count": free_n,
@@ -513,6 +517,11 @@ def providers_catalog(*, capability: str | None = None) -> dict[str, Any]:
     models.sort(key=lambda e: (e["provider"], e["priority"], e["name"]))
     if capability:
         models = [m for m in models if capability in (m.get("capabilities") or [])]
+    names_by_provider: dict[str, list[str]] = {}
+    for m in models:
+        names_by_provider.setdefault(str(m["provider"]), []).append(str(m["name"]))
+    for row in rows:
+        row["model_names"] = names_by_provider.get(row["provider"], [])
     return {
         "providers": rows,
         "models": models,

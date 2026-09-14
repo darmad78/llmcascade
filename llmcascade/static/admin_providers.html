@@ -76,6 +76,13 @@
     }
     tr.model-row.is-collapsed { display: none; }
     tr.model-row td:first-child { padding-left: 1.5rem; }
+    .conn { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); word-break: break-all; max-width: 28rem; }
+    .conn-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.35rem; }
+    a.signup { color: #7eb6ea; font-size: 0.78rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.25rem; max-width: 28rem; }
+    .chip { font-size: 0.68rem; padding: 0.08rem 0.35rem; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); font-family: var(--mono); }
+    .empty { color: var(--muted); font-size: 0.85rem; margin: 0.35rem 0 0; }
+    h2 .count { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
   </style>
 </head>
 <body>
@@ -87,14 +94,15 @@
   </header>
   <main>
     <p class="note">
-      Env vars are fallback when no UI keys. Each provider can hold multiple <strong>free</strong> and <strong>paid</strong> keys (rotated).
-      Models are grouped by provider (collapsed by default). Cascade families (e.g. gemini) list each model id; chance reorders cascade tries, hide drops that id.
+      Providers with a key can be routed. Connection is the upstream API URL we call.
+      Env vars are used when no UI key is stored. Each provider can hold <strong>free</strong> and <strong>paid</strong> keys (rotated).
     </p>
-    <p class="note warn">Key tier picks the free or paid key pool. Models with tier <strong>paid</strong> are excluded from auto-select unless <code>ALLOW_PAID=true</code>.</p>
+    <p class="note warn">Paid-tier models stay out of auto-select unless <code>ALLOW_PAID=true</code>.</p>
+    <p class="note"><input id="p-filter" type="text" placeholder="Filter providers…" style="width:min(22rem,100%)" /></p>
 
     <section class="panel">
       <h2>Add a cloud key</h2>
-      <p class="note">Search a provider, paste only the API key. Models for that cloud enable on save.</p>
+      <p class="note">Pick a provider, paste the API key. Its models become eligible on save.</p>
       <div class="form-grid">
         <label>Search / pick
           <input id="p-search" type="text" list="p-catalog" placeholder="groq, fireworks, gemini…" autocomplete="off" />
@@ -108,13 +116,14 @@
     </section>
 
     <section class="panel">
-      <h2>Provider keys</h2>
-      <p class="note"><input id="p-filter" type="text" placeholder="Filter table…" style="width:min(22rem,100%)" /></p>
+      <h2>Connected <span class="count" id="connected-count"></span></h2>
+      <p class="note">API key present (UI store or <code>.env</code>). Connection URL is what llmcascade uses for this cloud.</p>
       <div style="overflow-x:auto">
         <table>
           <thead>
             <tr>
               <th>Provider</th>
+              <th>Connection</th>
               <th>Source</th>
               <th>Free key</th>
               <th>Free replace</th>
@@ -122,22 +131,50 @@
               <th>Paid replace</th>
             </tr>
           </thead>
-          <tbody id="provider-rows"></tbody>
+          <tbody id="provider-rows-connected"></tbody>
         </table>
       </div>
+      <p class="empty" id="connected-empty" hidden>No keys yet — add one above or from the list below.</p>
     </section>
 
     <section class="panel">
-      <h2>Models (routing)</h2>
+      <h2>Need an API key <span class="count" id="missing-count"></span></h2>
+      <p class="note">Sign up on the provider site, then paste the key here. Until then these clouds are skipped by the router.</p>
       <div style="overflow-x:auto">
         <table>
           <thead>
             <tr>
-              <th>Model</th>
-              <th>Tier</th>
-              <th>Chance</th>
+              <th>Provider</th>
+              <th>Connection</th>
+              <th>Models (once keyed)</th>
+              <th>Sign up</th>
+              <th>Paste free key</th>
+            </tr>
+          </thead>
+          <tbody id="provider-rows-missing"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="missing-empty" hidden>Every catalog provider has a key.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Models the router can call</h2>
+      <p class="note">
+        Each row is a model id for a <strong>connected</strong> provider.
+        <strong>In use</strong> means we have a key and it is not hidden.
+        <strong>Weight</strong> is relative pick chance (higher = more often).
+        <strong>Priority</strong> is YAML order (lower number is preferred in priority strategies).
+        Gemini lists each cascade id; Hide drops that id from routing.
+      </p>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model id</th>
+              <th>Key pool</th>
+              <th>Weight</th>
               <th>Priority</th>
-              <th>Active</th>
+              <th>In use</th>
               <th></th>
             </tr>
           </thead>
@@ -183,12 +220,36 @@
       el.textContent = text;
     }
 
+    function connectionHtml(p) {
+      const urls = (p.endpoints && p.endpoints.length) ? p.endpoints : (p.endpoint ? [p.endpoint] : []);
+      if (!urls.length) return '<span class="src">not configured</span>';
+      return urls.map((u) => `
+        <div class="conn-row">
+          <span class="conn">${u}</span>
+          <button type="button" class="ghost" data-copy="${encodeURIComponent(u)}">Copy</button>
+        </div>`).join("");
+    }
+
+    function modelChips(p) {
+      const names = p.model_names || [];
+      if (!names.length) return '<span class="src">none in this view</span>';
+      const shown = names.slice(0, 6);
+      const extra = names.length - shown.length;
+      return `<div class="chips">${shown.map((n) => `<span class="chip">${n}</span>`).join("")}${extra > 0 ? `<span class="chip">+${extra}</span>` : ""}</div>`;
+    }
+
+    function signupHtml(p) {
+      if (!p.signup_url) return '<span class="src">—</span>';
+      return `<a class="signup" href="${p.signup_url}" target="_blank" rel="noopener noreferrer">Get API key</a>`;
+    }
+
     async function load() {
       const res = await fetch(`/admin/providers/data?capability=${encodeURIComponent(CAPABILITY)}`);
       if (!res.ok) throw new Error("failed to load");
       const data = await res.json();
       renderProviders(data.providers || []);
-      renderModels(data.models || []);
+      const keyed = new Set((data.providers || []).filter((p) => p.key_set).map((p) => p.provider));
+      renderModels(data.models || [], keyed);
       $("m-capability").value = CAPABILITY;
       const options = data.provider_options || [];
       const sel = $("m-provider");
@@ -197,8 +258,41 @@
       filterProviderRows();
     }
 
+    function bindProviderRow(root) {
+      root.querySelectorAll("[data-replace-free]").forEach((btn) => {
+        btn.addEventListener("click", () => replaceKey(btn.closest("tr"), "free"));
+      });
+      root.querySelectorAll("[data-replace-paid]").forEach((btn) => {
+        btn.addEventListener("click", () => replaceKey(btn.closest("tr"), "paid"));
+      });
+      root.querySelectorAll("[data-cancel-free]").forEach((btn) => {
+        btn.addEventListener("click", () => cancelKey(btn.closest("tr"), "free"));
+      });
+      root.querySelectorAll("[data-cancel-paid]").forEach((btn) => {
+        btn.addEventListener("click", () => cancelKey(btn.closest("tr"), "paid"));
+      });
+      root.querySelectorAll("[data-copy]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const text = decodeURIComponent(btn.getAttribute("data-copy") || "");
+          try {
+            await navigator.clipboard.writeText(text);
+            setMsg("Copied connection URL", true);
+          } catch {
+            setMsg(text, true);
+          }
+        });
+      });
+    }
+
     function renderProviders(rows) {
-      $("provider-rows").innerHTML = rows.map((p) => {
+      const connected = rows.filter((p) => p.key_set);
+      const missing = rows.filter((p) => !p.key_set);
+      $("connected-count").textContent = `(${connected.length})`;
+      $("missing-count").textContent = `(${missing.length})`;
+      $("connected-empty").hidden = connected.length > 0;
+      $("missing-empty").hidden = missing.length > 0;
+
+      $("provider-rows-connected").innerHTML = connected.map((p) => {
         const freeLabel = p.free_set
           ? (p.free_key_count > 0
               ? `•••••••• ×${p.free_key_count} (store)`
@@ -210,7 +304,8 @@
         return `
         <tr data-provider="${p.provider}" data-env-set="${p.env_set ? "1" : "0"}">
           <td><strong>${p.provider}</strong><div class="src">${p.auth_env_var}${p.needs_account_id ? " + ACCOUNT_ID" : ""}</div></td>
-          <td class="src">${p.key_set ? p.key_source : "none"}${p.disable_env ? " · env off" : ""}</td>
+          <td>${connectionHtml(p)}</td>
+          <td class="src">${p.key_source}${p.disable_env ? " · env off" : ""}</td>
           <td>
             <div class="src">${freeLabel}</div>
             ${p.free_set ? '<button class="ghost" type="button" data-cancel-free>Cancel</button>' : ""}
@@ -229,18 +324,21 @@
           </td>
         </tr>`;
       }).join("");
-      $("provider-rows").querySelectorAll("[data-replace-free]").forEach((btn) => {
-        btn.addEventListener("click", () => replaceKey(btn.closest("tr"), "free"));
-      });
-      $("provider-rows").querySelectorAll("[data-replace-paid]").forEach((btn) => {
-        btn.addEventListener("click", () => replaceKey(btn.closest("tr"), "paid"));
-      });
-      $("provider-rows").querySelectorAll("[data-cancel-free]").forEach((btn) => {
-        btn.addEventListener("click", () => cancelKey(btn.closest("tr"), "free"));
-      });
-      $("provider-rows").querySelectorAll("[data-cancel-paid]").forEach((btn) => {
-        btn.addEventListener("click", () => cancelKey(btn.closest("tr"), "paid"));
-      });
+
+      $("provider-rows-missing").innerHTML = missing.map((p) => `
+        <tr data-provider="${p.provider}" data-env-set="${p.env_set ? "1" : "0"}">
+          <td><strong>${p.provider}</strong><div class="src">${p.auth_env_var}${p.needs_account_id ? " + ACCOUNT_ID" : ""}</div></td>
+          <td>${connectionHtml(p)}</td>
+          <td>${modelChips(p)}</td>
+          <td>${signupHtml(p)}</td>
+          <td>
+            <input type="password" data-free placeholder="paste free key" />
+            <button type="button" data-replace-free style="margin-top:0.25rem">Add</button>
+          </td>
+        </tr>`).join("");
+
+      bindProviderRow($("provider-rows-connected"));
+      bindProviderRow($("provider-rows-missing"));
     }
 
     async function replaceKey(tr, tier) {
@@ -283,32 +381,37 @@
       await load();
     }
 
-    function renderModels(rows) {
+    function renderModels(rows, keyed) {
       const byProv = {};
       for (const m of rows) {
+        if (keyed && !keyed.has(m.provider)) continue;
         (byProv[m.provider] ||= []).push(m);
       }
       const providers = Object.keys(byProv).sort();
       const parts = [];
+      if (!providers.length) {
+        parts.push(`<tr><td colspan="6" class="src">No models to route yet — add an API key above.</td></tr>`);
+      }
       for (const provider of providers) {
         const group = byProv[provider];
         parts.push(`
           <tr class="group-row" data-provider-group="${provider}">
             <td colspan="6">
-              <button type="button" class="group-toggle" aria-expanded="false" data-toggle-group="${provider}">▸</button>
+              <button type="button" class="group-toggle" aria-expanded="true" data-toggle-group="${provider}">▾</button>
               <strong>${provider}</strong>
-              <span class="src"> · ${group.length} model${group.length === 1 ? "" : "s"}</span>
+              <span class="src"> · ${group.length} model${group.length === 1 ? "" : "s"} the router may pick</span>
             </td>
           </tr>`);
         for (const m of group) {
-          const cascadeNote = m.is_cascade_member ? ` · cascade of ${m.cascade_of}` : "";
+          const cascadeNote = m.is_cascade_member ? ` · fallback id in ${m.cascade_of}` : "";
           parts.push(`
-          <tr class="model-row is-collapsed ${m.enabled ? "" : "hidden-row"}"
+          <tr class="model-row ${m.enabled ? "" : "hidden-row"}"
               data-name="${m.name}" data-custom="${m.custom}" data-group="${provider}"
               data-cascade-member="${m.is_cascade_member ? "1" : "0"}">
             <td>
               <strong>${m.name}</strong>
-              <div class="src">${m.provider}${(m.capabilities || []).length ? " · " + m.capabilities.join(",") : ""}${m.custom ? " · custom" : ""}${cascadeNote}</div>
+              <div class="src">${m.endpoint || ""}</div>
+              <div class="src">${(m.capabilities || []).length ? m.capabilities.join(",") : "chat"}${m.custom ? " · custom" : ""}${cascadeNote}</div>
             </td>
             <td>
               <select data-tier>
@@ -405,9 +508,13 @@
 
     function filterProviderRows() {
       const q = (($("p-filter") && $("p-filter").value) || "").trim().toLowerCase();
-      $("provider-rows").querySelectorAll("tr").forEach((tr) => {
-        const hay = (tr.dataset.provider || "").toLowerCase() + " " + (tr.textContent || "").toLowerCase();
-        tr.style.display = !q || hay.includes(q) ? "" : "none";
+      ["provider-rows-connected", "provider-rows-missing"].forEach((id) => {
+        const body = $(id);
+        if (!body) return;
+        body.querySelectorAll("tr").forEach((tr) => {
+          const hay = (tr.dataset.provider || "").toLowerCase() + " " + (tr.textContent || "").toLowerCase();
+          tr.style.display = !q || hay.includes(q) ? "" : "none";
+        });
       });
     }
 
