@@ -15,6 +15,7 @@ from llmcascade.exceptions import QueueFullError
 from llmcascade.health import health_cache
 from llmcascade.metrics import metrics
 from llmcascade.quota_learn import QuotaLearner
+from llmcascade.rate_limiter import RateLimiter
 from llmcascade.registry import ModelConfig, key_source, list_all_models, load_registry
 from llmcascade.selector import ModelSelector, Strategy
 from llmcascade.stats_store import NullStatsStore, StatsStore
