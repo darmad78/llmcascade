@@ -235,6 +235,18 @@
     function csrfHeaders() {
       return { "Content-Type": "application/json", "X-CSRF-Token": CSRF_TOKEN };
     }
+    function formatApiError(data, res, fallback) {
+      const d = data && data.detail;
+      if (typeof d === "string" && d.trim()) return d;
+      if (Array.isArray(d)) {
+        const parts = d.map((x) => (x && (x.msg || x.message)) || "").filter(Boolean);
+        if (parts.length) return parts.join("; ");
+      }
+      if (res && res.status === 502) return "Server was restarting. Paste the key again and click Add.";
+      if (res && res.status === 403) return "Session expired. Refresh this page and try again.";
+      if (res && res.status) return `${fallback} (HTTP ${res.status})`;
+      return fallback;
+    }
     function setMsg(text, ok) {
       const el = $("msg");
       el.className = "msg " + (ok ? "ok" : "err");
@@ -376,7 +388,7 @@
       setMsg(`Replacing ${tier} key for ${provider}…`, true);
       const res = await fetch("/admin/providers", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(data.detail || "replace failed", false); return; }
+      if (!res.ok) { setMsg(formatApiError(data, res, "replace failed"), false); return; }
       setMsg(`Updated ${tier} key for ${provider}; ${data.models} active model(s).`, true);
       await load();
     }
@@ -397,7 +409,7 @@
       }
       const res = await fetch("/admin/providers", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(data.detail || "cancel failed", false); return; }
+      if (!res.ok) { setMsg(formatApiError(data, res, "cancel failed"), false); return; }
       setMsg(`Cancelled ${tier} key for ${provider}`, true);
       await load();
     }
@@ -553,7 +565,7 @@
         body: JSON.stringify({ provider, replace_free_key: val, csrf_token: CSRF_TOKEN }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setMsg(data.detail || "save failed", false); return; }
+      if (!res.ok) { setMsg(formatApiError(data, res, "save failed"), false); return; }
       $("p-key").value = "";
       setMsg(`Saved key for ${provider}; ${data.models} active model(s).`, true);
       await load();
