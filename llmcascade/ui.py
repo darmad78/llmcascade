@@ -61,6 +61,12 @@ def filter_dashboard(data: dict[str, Any], capability: str) -> dict[str, Any]:
     out["events"] = events
     out["errors"] = errors
     out["capability"] = capability
+    peaks = data.get("peak_24h") if isinstance(data.get("peak_24h"), dict) else {}
+    row = peaks.get(capability) if isinstance(peaks.get(capability), dict) else {}
+    out["peak_24h"] = {
+        "window": int(row.get("window") or 0),
+        "peak": int(row.get("peak") or 0),
+    }
     if capability == "embed":
         out["gemini_cascade"] = None
         out["next_pick"] = data.get("next_embed")

@@ -51,6 +51,9 @@ class MetricsCollector:
         with self._lock:
             self.requests_total[model] += 1
             self.requests_by_capability[capability] += 1
+        from llmcascade.peak_24h import peak_24h
+
+        peak_24h.record_success(capability)
 
     def record_failure(self, model: str, capability: str = "chat") -> None:
         with self._lock:

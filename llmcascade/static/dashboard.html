@@ -71,7 +71,14 @@
       border-color: color-mix(in srgb, #3a6ea5 50%, var(--line));
       background: color-mix(in srgb, #3a6ea5 22%, var(--panel));
     }
-    .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); }
+    .meta {
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-family: var(--mono);
+      text-align: right;
+      max-width: min(42rem, 100%);
+      line-height: 1.45;
+    }
     main {
       display: grid;
       gap: 1rem;
@@ -724,8 +731,23 @@
         const next = data.next_pick
           ? `next ${data.next_pick.name}`
           : "next —";
+        let rpdLeft = 0;
+        let rpdCap = 0;
+        let rpdKnown = false;
+        for (const m of models) {
+          const b = m.free_left || m.budget || {};
+          const lim = m.limits || {};
+          if (typeof b.rpd === "number") {
+            rpdLeft += Math.max(0, b.rpd);
+            rpdKnown = true;
+          }
+          if (typeof lim.rpd === "number") rpdCap += Math.max(0, lim.rpd);
+        }
+        const peak = data.peak_24h || {};
+        const max24 = Number(peak.peak || 0);
+        const win24 = Number(peak.window || 0);
         $("meta").textContent =
-          `${(data.models || []).length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · workers ${q.workers ?? "—"} · ${new Date().toLocaleTimeString()}`;
+          `max 24h ${max24} · 24h ${win24} · rpd left ${rpdKnown ? `${rpdLeft}/${rpdCap || "—"}` : "—"} today · ${models.length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · ${new Date().toLocaleTimeString()}`;
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
       }
