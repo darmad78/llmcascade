@@ -10,20 +10,22 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Iterable, Literal
 from zoneinfo import ZoneInfo
 
 from llmcascade.adapters.base import LLMResponse
 from llmcascade.exceptions import ProviderError
+from llmcascade.model_pool import ModelPool
 from llmcascade.registry import ModelConfig
 
-FailureKind = Literal["daily", "credit", "rate", "permanent", "transient"]
+FailureKind = Literal["daily", "credit", "rate", "permanent", "auth", "transient"]
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 # Gemini free RPM/TPM is a rolling ~60s window; retry after that, not 10m.
 RATE_COOLDOWN = timedelta(seconds=60)
 CREDIT_COOLDOWN = timedelta(hours=24)
 PERMANENT_COOLDOWN = timedelta(days=365)
+AUTH_COOLDOWN = timedelta(seconds=30)
 WAIT_CHUNK_S = 15.0
 MIN_TEXT_LEN = 1
 
@@ -63,8 +65,15 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
         return "daily"
     if status_code == 429:
         return "rate"
-    if status_code == 404 or "not supported" in text or "is not found" in text:
+    if (
+        status_code in (404, 410)
+        or "not supported" in text
+        or "is not found" in text
+        or "does not exist" in text
+    ):
         return "permanent"
+    if status_code in (401, 403):
+        return "auth"
     if status_code is None or (status_code is not None and status_code >= 500):
         return "rate"
     return "transient"
@@ -131,6 +140,10 @@ def cooldown_until(
         return now + RATE_COOLDOWN
     if kind == "credit":
         return now + CREDIT_COOLDOWN
+    if kind == "auth":
+        if learned is not None and learned > now:
+            return learned
+        return now + AUTH_COOLDOWN
     if kind == "permanent":
         return now + PERMANENT_COOLDOWN
     # daily → Pacific midnight. Ignore short Retry-After (Google often sends 60s on quota 429).
@@ -369,27 +382,42 @@ class GeminiCascadeManager:
 
 
 class ModelCooldownTracker:
-    """Process-local per registry-model cooldowns (keyed by model name)."""
+    """Unavailable pool + cooldowns (persisted). Dispatch only uses available models."""
 
-    def __init__(self) -> None:
-        self._cooldowns: dict[str, datetime] = {}
-        self._kinds: dict[str, FailureKind] = {}
-        self._lock = asyncio.Lock()
+    def __init__(self, pool: ModelPool | None = None) -> None:
+        self.pool = pool or ModelPool()
 
     async def available_at(self, model_name: str) -> datetime | None:
-        async with self._lock:
-            until = self._cooldowns.get(model_name)
-            if until is None:
-                return None
-            now = datetime.now(timezone.utc)
-            if until <= now:
-                self._cooldowns.pop(model_name, None)
-                self._kinds.pop(model_name, None)
-                return None
-            return until
+        return self.pool.available_at(model_name)
 
     async def is_cooling(self, model_name: str) -> bool:
-        return (await self.available_at(model_name)) is not None
+        return self.pool.is_unavailable(model_name)
+
+    def due_for_health(self, *, now: datetime | None = None) -> list[str]:
+        return self.pool.due_for_health(now=now)
+
+    def apply_health(
+        self,
+        model_name: str,
+        *,
+        state: str,
+        http_status: int | None = None,
+        message: str = "",
+        now: datetime | None = None,
+    ) -> str:
+        return self.pool.apply_health(
+            model_name,
+            state=state,
+            http_status=http_status,
+            message=message,
+            now=now,
+        )
+
+    def sync_registry(self, names: Iterable[str]) -> None:
+        self.pool.sync_registry(names)
+
+    def snapshot_pools(self, names: Iterable[str]) -> dict[str, Any]:
+        return self.pool.snapshot(names)
 
     async def apply_from_error(
         self,
@@ -404,28 +432,11 @@ class ModelCooldownTracker:
         until = cooldown_until(kind, now=now, headers=headers)
         if until is None:
             return None
-        async with self._lock:
-            prev = self._cooldowns.get(model_name)
-            if prev is None or until > prev:
-                self._cooldowns[model_name] = until
-                self._kinds[model_name] = kind
+        self.pool.mark_unavailable(model_name, kind, until)
         return kind
 
     async def status(self) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
-        cooling: dict[str, dict[str, Any]] = {}
-        async with self._lock:
-            expired = [m for m, t in self._cooldowns.items() if t <= now]
-            for m in expired:
-                self._cooldowns.pop(m, None)
-                self._kinds.pop(m, None)
-            for name, until in self._cooldowns.items():
-                cooling[name] = {
-                    "kind": self._kinds.get(name),
-                    "available_at": until.isoformat(),
-                    "remaining_s": max(0, int((until - now).total_seconds())),
-                }
-        return cooling
+        return self.pool.cooldown_status()
 
 
 def cascade_manager_from_registry(

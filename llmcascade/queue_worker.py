@@ -12,7 +12,7 @@ from llmcascade.adapters.gemini_adapter import GeminiAdapter
 from llmcascade.cascade import GeminiCascadeManager, ModelCooldownTracker, cascade_manager_from_registry
 from llmcascade.event_log import events
 from llmcascade.exceptions import QueueFullError
-from llmcascade.health import health_cache
+from llmcascade.health import EMPTY_BUDGET, health_cache, health_unavailable, probe_model
 from llmcascade.metrics import metrics
 from llmcascade.peak_24h import peak_24h
 from llmcascade.quota_learn import QuotaLearner
@@ -91,8 +91,10 @@ class RouterClient:
         self._max_queue = max_queue
         self._queue: asyncio.Queue[_Job | None] = asyncio.Queue(maxsize=max_queue)
         self._tasks: list[asyncio.Task[None]] = []
+        self._health_task: asyncio.Task[None] | None = None
         self._client = httpx.AsyncClient(timeout=60.0)
         self._started = False
+        self.cooldowns.sync_registry(m.name for m in self.registry)
 
     async def start(self) -> None:
         if self._started:
@@ -100,6 +102,7 @@ class RouterClient:
         self._started = True
         for _ in range(self._workers_n):
             self._tasks.append(asyncio.create_task(self._worker()))
+        self._health_task = asyncio.create_task(self._pool_health_loop())
 
     async def shutdown(self, graceful: bool = True) -> None:
         if not self._started:
@@ -113,6 +116,10 @@ class RouterClient:
                 t.cancel()
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        if self._health_task is not None:
+            self._health_task.cancel()
+            await asyncio.gather(self._health_task, return_exceptions=True)
+            self._health_task = None
         await self._client.aclose()
         self._started = False
 
@@ -130,6 +137,7 @@ class RouterClient:
         self.selector.quota_learn = self.quota_learn
         self.selector.stats = self.stats
         self.selector.strategy = self._strategy
+        self.cooldowns.sync_registry(m.name for m in new_registry)
         return len(new_registry)
 
     async def _execute(
@@ -184,6 +192,46 @@ class RouterClient:
                         job.future.set_exception(exc)
             finally:
                 self._queue.task_done()
+
+    async def _pool_health_loop(self) -> None:
+        while True:
+            await asyncio.sleep(30)
+            try:
+                await self.reconcile_unavailable_health()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                events.record(f"pool health failed: {exc}", level="error", type="health")
+
+    async def reconcile_unavailable_health(self, health: dict[str, Any] | None = None) -> None:
+        due = self.cooldowns.due_for_health()
+        if not due:
+            return
+        by_name = {m.name: m for m in self.registry}
+        for name in due:
+            h = (health or {}).get(name) if health else None
+            if not isinstance(h, dict):
+                model = by_name.get(name)
+                if model is None:
+                    continue
+                try:
+                    status = await probe_model(self._client, model)
+                    h = status.to_dict()
+                except Exception as exc:  # noqa: BLE001
+                    h = {"state": "down", "message": str(exc), "http_status": None}
+            action = self.cooldowns.apply_health(
+                name,
+                state=str(h.get("state") or "unknown"),
+                http_status=h.get("http_status") if isinstance(h.get("http_status"), int) else None,
+                message=str(h.get("message") or ""),
+            )
+            events.record(
+                f"pool {action}",
+                level="info" if action == "promoted" else "warn",
+                type="health",
+                model=name,
+                health=h.get("state"),
+            )
 
     async def submit(
         self,
@@ -283,6 +331,11 @@ class RouterClient:
         except Exception as exc:  # noqa: BLE001 — keep dashboard up if a probe crashes
             health = {}
             events.record(f"health probe failed: {exc}", level="error", type="health")
+        try:
+            await self.reconcile_unavailable_health(health)
+        except Exception:  # noqa: BLE001
+            pass
+        budgets["model_cooldowns"] = await self.cooldowns.status()
         next_model = await self.selector.peek("chat", tokens_estimate=1)
         next_embed = await self.selector.peek("embed", tokens_estimate=1)
         cooling = budgets.get("model_cooldowns") or {}
@@ -302,29 +355,33 @@ class RouterClient:
         for m in by_name.values():
             budget = budgets.get(m.name, {})
             src = key_source(m.auth_env_var, provider=m.provider, key_tier=getattr(m, "key_tier", "free"))
+            hstate = str((health.get(m.name) or {}).get("state") or "unknown")
             row_cooling = False
             if m.provider == "gemini" and m.cascade:
                 row_cooling = gemini_family_cooling
             else:
                 cd = cooling.get(m.name) if isinstance(cooling.get(m.name), dict) else None
                 row_cooling = bool(cd) and int(cd.get("remaining_s") or 0) > 0
+            unavailable = bool(
+                row_cooling or m.name in cooling or health_unavailable(hstate)
+            )
+            if unavailable:
+                budget = dict(EMPTY_BUDGET)
             free_left = None
             if m.free_tier_verified and m.name in active_names:
-                if row_cooling:
-                    free_left = {k: 0 for k in ("rps", "rpm", "rpd", "tpm")}
-                else:
-                    free_left = budget
+                free_left = dict(EMPTY_BUDGET) if unavailable else budget
             left = free_left if free_left is not None else (budget if m.name in active_names else {})
             rpd_left = left.get("rpd") if isinstance(left, dict) else None
             rpm_left = left.get("rpm") if isinstance(left, dict) else None
-            depleted = row_cooling or (
+            depleted = unavailable or (
                 m.name in active_names
                 and (
                     (rpd_left is not None and int(rpd_left) <= 0)
                     or (rpm_left is not None and int(rpm_left) <= 0)
                 )
             )
-            routable = bool(m.name in active_names and not depleted)
+            pool = "unavailable" if unavailable else "available"
+            routable = bool(m.name in active_names and pool == "available" and not depleted)
             entry: dict[str, Any] = {
                 "name": m.name,
                 "provider": m.provider,
@@ -337,7 +394,7 @@ class RouterClient:
                 "free_left": free_left,
                 "quota_source": (
                     "cooldown"
-                    if row_cooling
+                    if unavailable
                     else self.rate_limiter.quota_source(m.name)
                     if m.name in active_names
                     else "local"
@@ -366,6 +423,7 @@ class RouterClient:
                 "active": m.name in active_names,
                 "routable": routable,
                 "depleted": depleted,
+                "pool": pool,
                 "free_paid": getattr(m, "key_tier", None) or get_free_paid(m.provider),
                 "weight": getattr(m, "weight", 1),
                 "enabled": getattr(m, "enabled", True),
@@ -392,8 +450,9 @@ class RouterClient:
         gemini = budgets.get("gemini_cascade")
         if isinstance(gemini, dict):
             g_budget = budgets.get("gemini", {})
-            if gemini_family_cooling:
-                g_budget = {k: 0 for k in ("rps", "rpm", "rpd", "tpm")}
+            g_state = str((health.get("gemini") or {}).get("state") or "")
+            if gemini_family_cooling or health_unavailable(g_state):
+                g_budget = dict(EMPTY_BUDGET)
             gemini = {
                 **gemini,
                 "budget": g_budget,
@@ -422,4 +481,5 @@ class RouterClient:
             "events": events.events(),
             "errors": events.errors(),
             "peak_24h": peak_24h.snapshot(),
+            "pools": self.cooldowns.snapshot_pools(m.name for m in self.registry),
         }

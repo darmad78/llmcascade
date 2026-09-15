@@ -60,10 +60,11 @@ async def test_live_rpd_overrides_local_and_blocks():
 
 
 @pytest.mark.asyncio
-async def test_cooldown_shows_rpd_finished():
+async def test_cooldown_shows_rpd_finished(tmp_path):
     from llmcascade.cascade import ModelCooldownTracker
+    from llmcascade.model_pool import ModelPool
 
-    cool = ModelCooldownTracker()
+    cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
     await cool.apply_from_error("llama-3.3-70b-versatile", status_code=404, body="not found")
     lim = RateLimiter([_model()], cooldowns=cool)
     rem = await lim.remaining_budget("llama-3.3-70b-versatile")

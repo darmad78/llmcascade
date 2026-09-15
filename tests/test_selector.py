@@ -110,11 +110,12 @@ async def test_budget_excludes_model():
 
 
 @pytest.mark.asyncio
-async def test_credit_cooldown_skips_model_on_next_pick():
+async def test_credit_cooldown_skips_model_on_next_pick(tmp_path):
     from llmcascade.cascade import ModelCooldownTracker
+    from llmcascade.model_pool import ModelPool
 
     models = [_m("a"), _m("b")]
-    cool = ModelCooldownTracker()
+    cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
     lim = RateLimiter(models, cooldowns=cool)
     sel = ModelSelector(models, lim, cooldowns=cool)
     calls: list[str] = []
@@ -137,6 +138,27 @@ async def test_credit_cooldown_skips_model_on_next_pick():
     picked = await sel.pick("chat")
     assert picked is not None
     assert picked.name == "b"
+
+
+@pytest.mark.asyncio
+async def test_410_skips_dead_model_on_next_pick(tmp_path):
+    from llmcascade.cascade import ModelCooldownTracker
+    from llmcascade.model_pool import ModelPool
+
+    models = [_m("a"), _m("b")]
+    cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
+    lim = RateLimiter(models, cooldowns=cool)
+    sel = ModelSelector(models, lim, cooldowns=cool)
+
+    async def executor(model, prompt):
+        if model.name == "a":
+            raise ProviderError("nvidia HTTP 410: Gone", status_code=410, retryable=False, model="a")
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback("hi", "chat", executor)
+    assert resp.model == "b"
+    assert await cool.is_cooling("a")
+    assert (await sel.pick("chat")).name == "b"
 
 
 @pytest.mark.asyncio
@@ -224,11 +246,12 @@ async def test_embed_budget_exhausted_is_429():
 
 
 @pytest.mark.asyncio
-async def test_rate_cooldown_learns_retry_after():
+async def test_rate_cooldown_learns_retry_after(tmp_path):
     from llmcascade.cascade import ModelCooldownTracker
+    from llmcascade.model_pool import ModelPool
 
     models = [_m("a"), _m("b")]
-    cool = ModelCooldownTracker()
+    cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
     lim = RateLimiter(models, cooldowns=cool)
     sel = ModelSelector(models, lim, cooldowns=cool)
 

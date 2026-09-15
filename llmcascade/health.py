@@ -11,6 +11,12 @@ import httpx
 from llmcascade.event_log import events
 from llmcascade.registry import ModelConfig, resolve_auth_env
 
+EMPTY_BUDGET = {"rps": 0, "rpm": 0, "rpd": 0, "tpm": 0}
+
+
+def health_unavailable(state: str | None) -> bool:
+    return (state or "") in ("down", "auth_error")
+
 
 @dataclass
 class HealthStatus:
@@ -58,7 +64,7 @@ def _classify(status_code: int | None, exc: Exception | None) -> tuple[str, str]
         return "auth_error", f"HTTP {status_code}"
     if status_code == 429:
         return "warn", f"HTTP {status_code}"
-    if status_code == 404:
+    if status_code in (404, 410):
         return "down", f"HTTP {status_code}"
     # Reachable: 2xx/3xx/4xx (incl. 405 Method Not Allowed on GET)
     if status_code < 500:

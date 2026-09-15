@@ -46,7 +46,14 @@ def test_classify_rate():
 
 def test_classify_permanent():
     assert classify_failure(404, "model not found") == "permanent"
+    assert classify_failure(410, "Gone") == "permanent"
     assert classify_failure(400, "model is not supported") == "permanent"
+    assert classify_failure(400, "The model llama-3.3-70b-versatile does not exist") == "permanent"
+
+
+def test_classify_auth():
+    assert classify_failure(401, "unauthorized") == "auth"
+    assert classify_failure(403, "forbidden") == "auth"
 
 
 def test_classify_transient():
@@ -60,6 +67,8 @@ def test_cooldown_durations():
     assert rate == now + timedelta(seconds=60)
     perm = cooldown_until("permanent", now=now)
     assert perm == now + timedelta(days=365)
+    auth = cooldown_until("auth", now=now)
+    assert auth == now + timedelta(seconds=30)
     credit = cooldown_until("credit", now=now)
     assert credit == now + timedelta(hours=24)
     daily = cooldown_until("daily", now=now)

@@ -171,6 +171,9 @@ def test_embed_pages_after_login(client: TestClient):
     llm = client.get("/dashboard")
     assert llm.status_code == 200
     assert "Configured models" in llm.text
+    assert "Available" in llm.text
+    assert "Unavailable" in llm.text
+    assert 'id="models-unavailable"' in llm.text
     assert "const CAPABILITY = \"chat\"" in llm.text
 
 

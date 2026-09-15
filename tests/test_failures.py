@@ -21,6 +21,7 @@ def test_classify_recorded_known_kinds():
     assert classify_recorded_failure(None, "timeout") == "timeout"
     assert classify_recorded_failure(408, "request timeout") == "timeout"
     assert classify_recorded_failure(404, "model not found") == "permanent"
+    assert classify_recorded_failure(410, "Gone") == "permanent"
 
 
 def test_classify_recorded_unknown_keeps_5xx_and_400():

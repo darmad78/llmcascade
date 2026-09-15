@@ -61,6 +61,11 @@ def filter_dashboard(data: dict[str, Any], capability: str) -> dict[str, Any]:
     out["events"] = events
     out["errors"] = errors
     out["capability"] = capability
+    pools = data.get("pools") if isinstance(data.get("pools"), dict) else {}
+    names = {m.get("name") for m in models}
+    avail = [n for n in (pools.get("available") or []) if n in names]
+    unavail = [u for u in (pools.get("unavailable") or []) if isinstance(u, dict) and u.get("name") in names]
+    out["pools"] = {"available": avail, "unavailable": unavail}
     peaks = data.get("peak_24h") if isinstance(data.get("peak_24h"), dict) else {}
     row = peaks.get(capability) if isinstance(peaks.get(capability), dict) else {}
     out["peak_24h"] = {

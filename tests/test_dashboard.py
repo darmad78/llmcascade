@@ -35,10 +35,22 @@ def test_event_log_records_type():
     assert log.events()[0]["type"] == "request_fail"
 
 
+def test_health_unavailable_zeros():
+    from llmcascade.health import EMPTY_BUDGET, health_unavailable
+
+    assert health_unavailable("down")
+    assert health_unavailable("auth_error")
+    assert not health_unavailable("ok")
+    assert not health_unavailable("warn")
+    assert EMPTY_BUDGET["rpd"] == 0
+    assert EMPTY_BUDGET["rpm"] == 0
+
+
 def test_classify_health():
     assert _classify(200, None)[0] == "ok"
     assert _classify(405, None)[0] == "ok"
     assert _classify(404, None)[0] == "down"
+    assert _classify(410, None)[0] == "down"
     assert _classify(429, None)[0] == "warn"
     assert _classify(401, None)[0] == "auth_error"
     assert _classify(503, None)[0] == "down"

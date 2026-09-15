@@ -41,7 +41,7 @@ def classify_recorded_failure(status_code: int | None, body: str = "") -> Record
     """Map a provider error onto the stats taxonomy. Leftovers are `unknown`."""
     text = (body or "").lower()
     kind = classify_failure(status_code, body)
-    if kind in ("daily", "credit", "permanent"):
+    if kind in ("daily", "credit", "permanent", "auth"):
         return kind
     if kind == "rate":
         if status_code is None or "timeout" in text or "timed out" in text:

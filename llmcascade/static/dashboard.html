@@ -398,6 +398,11 @@
   <main>
     <section class="panel">
       <h2>__MODELS_HEADING__</h2>
+      <p class="chat-hint">Available models are dispatched. Unavailable models switch back in after cooldown + health, except gone IDs which wait for a replacement.</p>
+    </section>
+    <section class="panel">
+      <h2>Available</h2>
+      <p class="chat-hint">Dispatch pool — health-ok models not in cooldown.</p>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -415,6 +420,29 @@
             </tr>
           </thead>
           <tbody id="models"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Unavailable</h2>
+      <p class="chat-hint">Out of dispatch. Cooldown/auth return after a health probe; gone IDs stay out until replaced.</p>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Key</th>
+              <th>Active</th>
+              <th>Free/Paid</th>
+              <th>Health</th>
+              <th>Free tier</th>
+              <th>Free left</th>
+              <th>Budget left</th>
+              <th>Reqs</th>
+              <th>Fails</th>
+            </tr>
+          </thead>
+          <tbody id="models-unavailable"></tbody>
         </table>
       </div>
     </section>
@@ -537,6 +565,12 @@
       }
       const cd = m.cooldown || {};
       const cooling = (cd.remaining_s || 0) > 0;
+      const hstate = (m.health && m.health.state) || "";
+      const unavailable =
+        cooling || m.pool === "unavailable" || hstate === "down" || hstate === "auth_error";
+      if (unavailable) {
+        b = { rpd: 0, rpm: 0, rps: 0, tpm: 0 };
+      }
       const parts = [
         ["rpd", b.rpd, lim.rpd],
         ["rpm", b.rpm, lim.rpm],
@@ -546,8 +580,18 @@
         return `<span>${k} <strong>${escapeHtml(l)}</strong><span class="cap">/${escapeHtml(c)}</span></span>`;
       });
       let note = "";
-      if (cooling) {
-        note = `${escapeHtml(cd.kind || "cooldown")} · this model RPD finished · ${escapeHtml(fmtDuration(cd.remaining_s))}`;
+      if (unavailable) {
+        if (cd.waiting_health) {
+          note = `${escapeHtml(cd.kind || "cooldown")} · waiting health probe`;
+        } else if (cd.kind === "permanent") {
+          note = "gone · stays out until a new model ID replaces it";
+        } else if (hstate === "down" || hstate === "auth_error") {
+          note = "unavailable · remaining 0";
+        } else if (cd.kind === "auth") {
+          note = `auth · unavailable · ${escapeHtml(fmtDuration(cd.remaining_s))}`;
+        } else {
+          note = `${escapeHtml(cd.kind || "cooldown")} · unavailable · ${escapeHtml(fmtDuration(cd.remaining_s))}`;
+        }
       } else if (m.quota_source === "headers" || m.quota_source === "openrouter_key") {
         note = "live provider remaining";
       } else if (learned.learned_rpd != null || memberRows.some((r) => r.learned_rpd != null)) {
@@ -555,7 +599,7 @@
       } else {
         note = "no cap yet — not locally RPD-limited";
       }
-      const dead = cooling || Number(b.rpd) === 0 || Number(b.rpm) === 0 || m.depleted;
+      const dead = unavailable || Number(b.rpd) === 0 || Number(b.rpm) === 0 || m.depleted;
       const wrap = dead ? "depleted" : "";
       return `<div class="free-left ${wrap}">${parts.join(" · ")}</div><div class="free-note ${wrap}">${note}</div>`;
     }
@@ -720,7 +764,10 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const models = data.models || [];
-        renderModels("models", models, data.next_pick);
+        const available = models.filter((m) => m.pool !== "unavailable");
+        const unavailable = models.filter((m) => m.pool === "unavailable");
+        renderModels("models", available, data.next_pick);
+        renderModels("models-unavailable", unavailable, null);
         fillEmbedModels(models, data.next_pick);
         renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
         lastEvents = data.events || [];

@@ -398,8 +398,8 @@
           <span class="code">cooldown [rate|daily|permanent|…]</span>
         </div>
         <p class="title">Model cooldown applied</p>
-        <p class="what">llmcascade parked a model after a classified failure (process-local).</p>
-        <p class="fix"><strong>Fix:</strong> Wait until ready; Gemini cascade may fall through to other providers automatically. Retired IDs (`permanent` / 404) are replaced by the separate `llmcascade.retire_watch` process.</p>
+        <p class="what">llmcascade moved the model to the unavailable pool after a classified failure. Rate/daily/credit/auth return only after cooldown <em>and</em> a health probe. 404/410 stay out until retire-watch (or you) adds a new ID.</p>
+        <p class="fix"><strong>Fix:</strong> Wait for health switch-in; add another keyed provider. Retired IDs (`permanent` / 404 / 410) are replaced by `llmcascade.retire_watch`.</p>
       </div>
 
       <div class="row">
