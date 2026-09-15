@@ -98,6 +98,26 @@
       border-radius: 6px;
       padding: 0.85rem;
     }
+    .peak-24h {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem 2rem;
+      font-family: var(--mono);
+    }
+    .peak-24h .num {
+      font-size: 1.6rem;
+      font-weight: 650;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+    .peak-24h .lbl {
+      display: block;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+    }
     .summary {
       display: flex;
       flex-wrap: wrap;
@@ -396,6 +416,13 @@
   </header>
   <div class="shell">
   <main>
+    <section class="panel">
+      <h2>Last 24 hours</h2>
+      <div class="peak-24h" id="peak-24h">
+        <div><span class="lbl">handled</span><span class="num" id="peak-window">—</span></div>
+        <div><span class="lbl">max</span><span class="num" id="peak-max">—</span></div>
+      </div>
+    </section>
     <section class="panel">
       <h2>__MODELS_HEADING__</h2>
       <p class="chat-hint">Available models are dispatched. Unavailable models switch back in after cooldown + health, except gone IDs which wait for a replacement.</p>
@@ -793,8 +820,12 @@
         const peak = data.peak_24h || {};
         const max24 = Number(peak.peak || 0);
         const win24 = Number(peak.window || 0);
+        const winEl = $("peak-window");
+        const maxEl = $("peak-max");
+        if (winEl) winEl.textContent = String(win24);
+        if (maxEl) maxEl.textContent = String(max24);
         $("meta").textContent =
-          `max 24h ${max24} · 24h ${win24} · rpd left ${rpdKnown ? `${rpdLeft}/${rpdCap || "—"}` : "—"} today · ${models.length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · ${new Date().toLocaleTimeString()}`;
+          `24h ${win24} · max ${max24} · rpd left ${rpdKnown ? `${rpdLeft}/${rpdCap || "—"}` : "—"} today · ${models.length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · ${new Date().toLocaleTimeString()}`;
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
       }

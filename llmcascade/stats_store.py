@@ -70,6 +70,8 @@ class StatsStore:
         self._buckets = self._db["stats_buckets"]
         self._totals = self._db["stats_totals"]
         self._failures = self._db["failures"]
+        self._req_24h = self._db["req_24h"]
+        self._req_24h_peak = self._db["req_24h_peak"]
         self.configured = True
         self.detail = ""
         # Strong refs so fire-and-forget tasks are not GC'd before they run.
@@ -115,6 +117,8 @@ class StatsStore:
         await self._failures.create_index("ts", expireAfterSeconds=30 * 24 * 3600, name="ts_ttl_30d")
         await self._failures.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
         await self._failures.create_index([("kind", 1), ("ts", -1)], name="kind_ts")
+        await self._req_24h.create_index("ts", expireAfterSeconds=24 * 3600, name="ts_ttl_24h")
+        await self._req_24h.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
 
     async def close(self) -> None:
         if self._pending:
@@ -306,6 +310,8 @@ class StatsStore:
                 },
                 upsert=True,
             )
+            if success:
+                await self._bump_peak_24h(cap, now)
         except Exception as exc:  # noqa: BLE001 — never fail request path on stats
             log.error(
                 f"stats persist failed: {exc}",
@@ -323,6 +329,34 @@ class StatsStore:
                 )
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _bump_peak_24h(self, capability: str, now: datetime) -> None:
+        await self._req_24h.insert_one({"ts": now, "capability": capability})
+        window = await self._req_24h.count_documents(
+            {"capability": capability, "ts": {"$gte": now - timedelta(hours=24)}}
+        )
+        await self._req_24h_peak.update_one(
+            {"_id": capability},
+            {"$max": {"peak": int(window)}},
+            upsert=True,
+        )
+
+    async def snapshot_peak_24h(self, *, now: datetime | None = None) -> dict[str, dict[str, int]]:
+        now = now or datetime.now(timezone.utc)
+        since = now - timedelta(hours=24)
+        out: dict[str, dict[str, int]] = {}
+        for cap in ("chat", "embed"):
+            window = int(
+                await self._req_24h.count_documents(
+                    {"capability": cap, "ts": {"$gte": since}}
+                )
+            )
+            doc = await self._req_24h_peak.find_one({"_id": cap})
+            peak = int((doc or {}).get("peak") or 0)
+            if window > peak:
+                peak = window
+            out[cap] = {"window": window, "peak": peak}
+        return out
 
     @staticmethod
     def _row_metrics(doc: dict[str, Any]) -> dict[str, Any]:
@@ -644,3 +678,9 @@ class NullStatsStore:
 
     async def ensure_indexes(self) -> None:
         return None
+
+    async def snapshot_peak_24h(self) -> dict[str, dict[str, int]]:
+        return {
+            "chat": {"window": 0, "peak": 0},
+            "embed": {"window": 0, "peak": 0},
+        }

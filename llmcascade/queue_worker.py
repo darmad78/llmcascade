@@ -14,7 +14,6 @@ from llmcascade.event_log import events
 from llmcascade.exceptions import QueueFullError
 from llmcascade.health import EMPTY_BUDGET, health_cache, health_unavailable, probe_model
 from llmcascade.metrics import metrics
-from llmcascade.peak_24h import peak_24h
 from llmcascade.quota_learn import QuotaLearner
 from llmcascade.rate_limiter import RateLimiter
 from llmcascade.registry import ModelConfig, key_source, list_all_models, load_registry
@@ -480,6 +479,6 @@ class RouterClient:
             },
             "events": events.events(),
             "errors": events.errors(),
-            "peak_24h": peak_24h.snapshot(),
+            "peak_24h": await self.stats.snapshot_peak_24h(),
             "pools": self.cooldowns.snapshot_pools(m.name for m in self.registry),
         }

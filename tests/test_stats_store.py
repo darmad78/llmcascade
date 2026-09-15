@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from llmcascade.stats_store import NullStatsStore, StatsStore, floor_day, floor_hour
 
 
@@ -172,3 +174,57 @@ def test_pivot_series_note_model_cross_dim():
     assert row["by_note_model"]["app"]["a"]["failures"] == 1
     assert row["by_note_model"]["jobs"]["a"]["requests"] == 2
     assert row["by_note_model"]["jobs"]["a"]["avg_latency_ms"] == 50.0
+
+
+class _Hits:
+    def __init__(self) -> None:
+        self.docs: list[dict] = []
+
+    async def insert_one(self, doc):
+        self.docs.append(dict(doc))
+
+    async def count_documents(self, q):
+        cap = q.get("capability")
+        gte = (q.get("ts") or {}).get("$gte")
+        n = 0
+        for d in self.docs:
+            if cap is not None and d.get("capability") != cap:
+                continue
+            if gte is not None and d.get("ts") < gte:
+                continue
+            n += 1
+        return n
+
+
+class _Peaks:
+    def __init__(self) -> None:
+        self.docs: dict = {}
+
+    async def find_one(self, q):
+        return self.docs.get(q.get("_id"))
+
+    async def update_one(self, q, upd, upsert=False):
+        _id = q["_id"]
+        row = dict(self.docs.get(_id) or {"_id": _id, "peak": 0})
+        mx = (upd.get("$max") or {}).get("peak")
+        if mx is not None:
+            row["peak"] = max(int(row.get("peak") or 0), int(mx))
+        self.docs[_id] = row
+
+
+@pytest.mark.asyncio
+async def test_mongo_24h_counter_keeps_max():
+    from datetime import timedelta
+
+    store = StatsStore.__new__(StatsStore)
+    store._req_24h = _Hits()
+    store._req_24h_peak = _Peaks()
+    t0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+    await store._bump_peak_24h("chat", t0)
+    await store._bump_peak_24h("chat", t0 + timedelta(hours=1))
+    snap = await store.snapshot_peak_24h(now=t0 + timedelta(hours=2))
+    assert snap["chat"] == {"window": 2, "peak": 2}
+    await store._bump_peak_24h("chat", t0 + timedelta(hours=25))
+    later = await store.snapshot_peak_24h(now=t0 + timedelta(hours=26))
+    assert later["chat"]["window"] == 1
+    assert later["chat"]["peak"] == 2
