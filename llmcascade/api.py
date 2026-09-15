@@ -40,6 +40,7 @@ from llmcascade.api_auth import (
     extract_api_key,
     is_production_profile,
     require_auth_enabled,
+    validate_admin_api_key,
     validate_api_key,
 )
 from llmcascade.mcp_http import mcp_endpoint
@@ -389,6 +390,27 @@ async def _authorize_inference(request: Request) -> None:
     raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
+def _authorize_reload(request: Request) -> None:
+    api_key = extract_api_key(
+        request.headers.get("authorization"),
+        request.headers.get("x-api-key"),
+    )
+    if validate_admin_api_key(api_key):
+        return
+    if _dashboard_session_ok(request):
+        _require_csrf(request, request.headers.get("x-csrf-token"))
+        return
+    if not require_auth_enabled():
+        return
+    raise HTTPException(status_code=401, detail="admin API key required")
+
+
+def apply_registry_reload() -> dict[str, Any]:
+    n = _require_client().reload_registry(allow_empty=True)
+    events.record("registry reloaded", level="info", type="admin", models=n)
+    return {"ok": True, "models": n}
+
+
 async def _submit_inference(
     prompt: str,
     capability: str,
@@ -670,6 +692,12 @@ async def embed(request: Request, body: EmbedRequest) -> LLMResponse:
     return await _submit_inference(
         body.prompt, "embed", body.notes, body.params, model=body.model
     )
+
+
+@app.post("/v1/admin/reload-registry")
+async def reload_registry_endpoint(request: Request) -> dict[str, Any]:
+    _authorize_reload(request)
+    return apply_registry_reload()
 
 
 @app.get("/v1/status")

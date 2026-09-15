@@ -160,6 +160,10 @@ ADMIN_TOOLS: dict[str, JsonDict] = {
         "description": "Probe a model without changing config.",
         "inputSchema": _tool_schema({"name": {"type": "string"}}, ["name"]),
     },
+    "reload_registry": {
+        "description": "Hot-reload models.yaml and stored keys into the running API.",
+        "inputSchema": _tool_schema({}),
+    },
     "metrics": {
         "description": "In-process metrics snapshot.",
         "inputSchema": _tool_schema({}),
@@ -265,6 +269,8 @@ async def dispatch_tool(name: str, arguments: JsonDict) -> Any:
         return api.apply_model_delete(str(args.get("name") or ""))
     if name == "test_model":
         return await api.apply_model_test(str(args.get("name") or ""))
+    if name == "reload_registry":
+        return api.apply_registry_reload()
     if name == "metrics":
         return await api._require_client().metrics_snapshot()
     if name == "stats":

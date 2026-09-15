@@ -4,11 +4,24 @@ Self-hosted **free-tier LLM dispatcher**. At request time it picks an eligible f
 
 Python **3.11+**. Optional in-process library (`RouterClient`).
 
+## Why
+
+Free-tier APIs die on **429s**, not on missing SDKs. You already have keys; you need one process that **will not send** a call the remaining **rpd / rpm / rps / tpm** cannot take, then **fail over** to the next eligible model.
+
+- **BYOK** — credentials stay on your host (env or encrypted admin UI). No keyless “free” backends.
+- **Observed remaining first** — provider headers, then a cap learned from daily/credit 429s, then YAML guesses.
+- **Embeddings do not cascade** — one `model` per corpus so vector spaces stay comparable.
+- **Paid stays out** of auto-select unless `ALLOW_PAID=true`.
+
+Not an IDE proxy, not a hosted multi-tenant gateway, not a catalog of “billions of free tokens.”
+
+**Operators:** run it, paste keys, watch `/dashboard`. **Evaluators / commercial use:** [LICENSING-FAQ.md](LICENSING-FAQ.md) — Non-Commercial Use is free; selling a product on this code needs a written license (**support@conceptgame.co.uk**).
+
 ## Capabilities and limitations
 
 **Does**
 
-- Dispatch **chat** across eligible free-tier models using live **rpd / rpm / rps / tpm** budgets; retry once on timeout/5xx, then fail over.
+- Dispatch **chat** across eligible free-tier models using live **rpd / rpm / rps / tpm** budgets; retry once on **timeout/408**, then fail over (including 5xx).
 - Pin chat with `model`, optional `failover_models`, and required `include_free_cascade` when a pin is set.
 - **Embed** with a required `model` (no cascade across vector spaces).
 - Expose **HTTP** (`/v1/complete`, `/v1/embed`) and **MCP** (`POST /mcp` JSON-RPC): inference tools plus separate admin tools.
@@ -118,6 +131,7 @@ Use an inference key for `complete`/`embed`. Use a **different** admin key for p
 | `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"?, "model"?, "failover_models"?, "include_free_cascade"? }` → `text`, `model`, … |
 | `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"? }` → `embedding`, `dimensions` |
 | `GET` | `/v1/status` | Budgets + Gemini snapshot |
+| `POST` | `/v1/admin/reload-registry` | Hot-reload YAML (open when auth off; else admin key / cookie+CSRF) |
 | `GET` | `/v1/health` | Provider reachability |
 | `POST` | `/mcp` | Streamable HTTP MCP (JSON-RPC). Inference + admin tools. |
 | `GET` | `/dashboard` | Chat status UI (login) |
@@ -156,7 +170,7 @@ Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats?capability=chat\|embed`, `/
 
 IDs and free-tier limits: [`llmcascade/models.yaml`](llmcascade/models.yaml). Missing keys skip that provider. Env vars **override** UI-stored keys.
 
-Chat fallback: pick eligible model → retry same model once on timeout/5xx → next model on 429 / hard fail → `AllModelsExhaustedError`. Default **headroom**: most remaining RPD (live headers, then learned quota, then YAML), sticky to the last success **per `notes`**. Opt-in: `LLMCASCADE_STRATEGY=round_robin|least_used|priority_first|weighted`. Paid-tier models stay out of auto-select unless `ALLOW_PAID=true`.
+Chat fallback: pick eligible model → retry same model once on timeout/408 → next model on 429 / 5xx / hard fail → `AllModelsExhaustedError`. Default **headroom**: most remaining RPD (live headers, then learned quota, then YAML), sticky to the last success **per `notes`**. Opt-in: `LLMCASCADE_STRATEGY=round_robin|least_used|priority_first|weighted`. Paid-tier models stay out of auto-select unless `ALLOW_PAID=true`.
 
 ## Library (`RouterClient`)
 
@@ -196,10 +210,15 @@ asyncio.run(main())
 | Dashboard chat / Test embed `401` | Hard-refresh after login. Session + CSRF is enough; do not paste an API key in the UI. |
 | `400` embed requires model | Pin one registry name; embeddings do not cascade. |
 | Gemini 429 / daily quota | Expected; cascade cools that ID and tries siblings, then other providers. [docs/gemini.md](docs/gemini.md) |
+| Groq / provider 404 (`permanent`) | Separate process `python -m llmcascade.retire_watch` (PM2 `llmcascade-retire-watch`) asks cascade for the next free ID, probes it, updates `models.yaml`, reloads, emails `ADMIN_EMAIL`. |
 | Dashboard locked after login | Change the first-run admin password at `/admin/change-password`. |
 | Stats empty after restart | In-memory unless `MONGODB_URI` is set. |
 
 `pytest -q` after `pip install -e ".[api,dev]"`. Production bind/proxy: [docs/ops.md](docs/ops.md).
+
+## Issues
+
+Bug reports and patches for **Non-Commercial Use** are welcome via GitHub issues/PRs. There is no contributor program, CLA circus, or implied right to Commercial Use. Commercial licensing: **support@conceptgame.co.uk**.
 
 ## Disclaimer
 

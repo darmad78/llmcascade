@@ -216,6 +216,7 @@ class GeminiCascadeManager:
     ) -> None:
         self.models = resolve_cascade_order(models, preferred_env=preferred_env)
         self._cooldowns: dict[str, datetime] = {}
+        self._kinds: dict[str, FailureKind] = {}
         self._lock = asyncio.Lock()
 
     def bind_logical(self, logical_name: str) -> None:
@@ -237,6 +238,7 @@ class GeminiCascadeManager:
             now = datetime.now(timezone.utc)
             if until <= now:
                 self._cooldowns.pop(model_id, None)
+                self._kinds.pop(model_id, None)
                 return None
             return until
 
@@ -278,6 +280,7 @@ class GeminiCascadeManager:
                 prev = self._cooldowns.get(mid)
                 if prev is None or until > prev:
                     self._cooldowns[mid] = until
+                    self._kinds[mid] = kind
 
     async def status(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -288,6 +291,8 @@ class GeminiCascadeManager:
             expired = [m for m, t in self._cooldowns.items() if t <= now]
             for m in expired:
                 self._cooldowns.pop(m, None)
+                self._kinds.pop(m, None)
+            kinds: dict[str, str] = {}
             for m in self.models:
                 until = self._cooldowns.get(m)
                 if until is None:
@@ -295,6 +300,8 @@ class GeminiCascadeManager:
                 else:
                     cooling[m] = until.isoformat()
                     remaining_s[m] = max(0, int((until - now).total_seconds()))
+                    if self._kinds.get(m):
+                        kinds[m] = self._kinds[m]
         next_ready_in_s: int | None
         if available:
             next_ready_in_s = 0
@@ -308,6 +315,7 @@ class GeminiCascadeManager:
             "available": available,
             "available_at": cooling,
             "cooldown_remaining_s": remaining_s,
+            "cooldown_kinds": kinds,
             "next_ready_in_s": next_ready_in_s,
             "family_ready": bool(available),
         }

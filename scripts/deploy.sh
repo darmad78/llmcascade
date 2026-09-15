@@ -21,11 +21,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 APP_NAME="${PM2_APP_NAME:-llmcascade}"
+WATCH_NAME="${PM2_WATCH_NAME:-llmcascade-retire-watch}"
 HOST="${UVICORN_HOST:-0.0.0.0}"
 PORT="${UVICORN_PORT:-12000}"
 PYTHON_BIN="${PYTHON_BIN:-python3.11}"
 VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
 UVICORN_BIN="${UVICORN_BIN:-$VENV_DIR/bin/uvicorn}"
+PYTHON_RUN="${PYTHON_RUN:-$VENV_DIR/bin/python}"
 PIP_BIN="${PIP_BIN:-$VENV_DIR/bin/pip}"
 
 if ! command -v pm2 >/dev/null 2>&1; then
@@ -117,6 +119,11 @@ if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
   pm2 delete "$APP_NAME"
 fi
 
+if pm2 describe "$WATCH_NAME" >/dev/null 2>&1; then
+  echo "info: deleting existing PM2 app '$WATCH_NAME'"
+  pm2 delete "$WATCH_NAME"
+fi
+
 echo "info: starting PM2 app '$APP_NAME' (host=$HOST port=$PORT)"
 pm2 start "$UVICORN_BIN" \
   --name "$APP_NAME" \
@@ -125,6 +132,20 @@ pm2 start "$UVICORN_BIN" \
   -- \
   llmcascade.api:app --host "$HOST" --port "$PORT"
 
+if [[ ! -x "$PYTHON_RUN" ]]; then
+  echo "error: python missing after install ($PYTHON_RUN)" >&2
+  exit 1
+fi
+
+echo "info: starting PM2 app '$WATCH_NAME'"
+pm2 start "$PYTHON_RUN" \
+  --name "$WATCH_NAME" \
+  --interpreter none \
+  --cwd "$ROOT" \
+  -- \
+  -m llmcascade.retire_watch
+
 pm2 save
 pm2 show "$APP_NAME" | sed -n '1,40p'
-echo "ok: deploy complete — $APP_NAME is up"
+pm2 show "$WATCH_NAME" | sed -n '1,40p'
+echo "ok: deploy complete — $APP_NAME and $WATCH_NAME are up"

@@ -200,6 +200,7 @@ async def test_permanent_excludes_model():
     status = await mgr.status()
     assert "a" not in status["available"]
     assert "a" in status["available_at"]
+    assert status["cooldown_kinds"]["a"] == "permanent"
     assert "b" in status["available"]
 
 

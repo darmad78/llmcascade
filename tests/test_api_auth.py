@@ -223,3 +223,26 @@ def test_parse_env_file_keeps_bcrypt_dollars(tmp_path: Path):
     env.write_text(f"LLMCASCADE_API_KEY_HASHES='{hashed}'\n", encoding="utf-8")
     parsed = _parse_env_file(env)
     assert parsed["LLMCASCADE_API_KEY_HASHES"] == hashed
+
+
+def test_reload_registry_open_when_auth_off(client: TestClient):
+    r = client.post("/v1/admin/reload-registry")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+
+def test_reload_registry_requires_admin_key(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("LLMCASCADE_API_KEYS", "inf-key")
+    monkeypatch.setenv("LLMCASCADE_ADMIN_API_KEYS", "adm-key")
+    denied = client.post(
+        "/v1/admin/reload-registry",
+        headers={"Authorization": "Bearer inf-key"},
+    )
+    assert denied.status_code == 401
+    ok = client.post(
+        "/v1/admin/reload-registry",
+        headers={"Authorization": "Bearer adm-key"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["ok"] is True

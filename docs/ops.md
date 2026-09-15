@@ -12,8 +12,12 @@ set -a && source .env && set +a
 pm2 delete llmcascade 2>/dev/null || true
 pm2 start .venv/bin/uvicorn --name llmcascade --interpreter none --cwd /path/to/llmcascade -- \
   llmcascade.api:app --host 127.0.0.1 --port 12000
+pm2 start .venv/bin/python --name llmcascade-retire-watch --interpreter none --cwd /path/to/llmcascade -- \
+  -m llmcascade.retire_watch
 pm2 save
 ```
+
+`llmcascade-retire-watch` is a **second process**. It only HTTP-calls the API (budgets stay in uvicorn). On `permanent` cooldown it asks `/v1/complete` for the next free catalog ID, probes until one works, writes `models.yaml`, `POST /v1/admin/reload-registry`, and emails `ADMIN_EMAIL`.
 
 ## Nginx
 
