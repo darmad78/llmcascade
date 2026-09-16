@@ -425,6 +425,8 @@ async def _submit_inference(
     include_free_cascade: bool | None = None,
 ) -> LLMResponse:
     client = _require_client()
+    if _stats is not None:
+        _stats.enqueue_recv(capability)
     try:
         return await client.submit(
             prompt,

@@ -219,12 +219,30 @@ async def test_mongo_24h_counter_keeps_max():
     store = StatsStore.__new__(StatsStore)
     store._req_24h = _Hits()
     store._req_24h_peak = _Peaks()
+    store._recv_24h = _Hits()
     t0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
     await store._bump_peak_24h("chat", t0)
     await store._bump_peak_24h("chat", t0 + timedelta(hours=1))
     snap = await store.snapshot_peak_24h(now=t0 + timedelta(hours=2))
-    assert snap["chat"] == {"window": 2, "peak": 2}
+    assert snap["chat"] == {"window": 2, "peak": 2, "recv": 0}
     await store._bump_peak_24h("chat", t0 + timedelta(hours=25))
     later = await store.snapshot_peak_24h(now=t0 + timedelta(hours=26))
     assert later["chat"]["window"] == 1
     assert later["chat"]["peak"] == 2
+    assert later["chat"]["recv"] == 0
+
+
+@pytest.mark.asyncio
+async def test_recv_24h_counts_incoming_not_handled():
+    store = StatsStore.__new__(StatsStore)
+    store._req_24h = _Hits()
+    store._req_24h_peak = _Peaks()
+    store._recv_24h = _Hits()
+    t0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+    await store.record_recv("chat", now=t0)
+    await store.record_recv("chat", now=t0)
+    await store._bump_peak_24h("chat", t0)
+    snap = await store.snapshot_peak_24h(now=t0)
+    assert snap["chat"]["recv"] == 2
+    assert snap["chat"]["window"] == 1
+    assert snap["embed"]["recv"] == 0

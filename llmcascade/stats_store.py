@@ -72,6 +72,7 @@ class StatsStore:
         self._failures = self._db["failures"]
         self._req_24h = self._db["req_24h"]
         self._req_24h_peak = self._db["req_24h_peak"]
+        self._recv_24h = self._db["recv_24h"]
         self.configured = True
         self.detail = ""
         # Strong refs so fire-and-forget tasks are not GC'd before they run.
@@ -119,6 +120,8 @@ class StatsStore:
         await self._failures.create_index([("kind", 1), ("ts", -1)], name="kind_ts")
         await self._req_24h.create_index("ts", expireAfterSeconds=24 * 3600, name="ts_ttl_24h")
         await self._req_24h.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
+        await self._recv_24h.create_index("ts", expireAfterSeconds=24 * 3600, name="ts_ttl_24h")
+        await self._recv_24h.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
 
     async def close(self) -> None:
         if self._pending:
@@ -153,6 +156,15 @@ class StatsStore:
                 capability=capability,
             )
         )
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
+    def enqueue_recv(self, capability: str = "chat") -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = loop.create_task(self.record_recv(capability))
         self._pending.add(task)
         task.add_done_callback(self._pending.discard)
 
@@ -330,6 +342,14 @@ class StatsStore:
             except Exception:  # noqa: BLE001
                 pass
 
+    async def record_recv(self, capability: str = "chat", *, now: datetime | None = None) -> None:
+        cap = (capability or "chat").strip() or "chat"
+        at = now or datetime.now(timezone.utc)
+        try:
+            await self._recv_24h.insert_one({"ts": at, "capability": cap})
+        except Exception as exc:  # noqa: BLE001
+            log.error(f"recv persist failed: {exc}", extra={"capability": cap})
+
     async def _bump_peak_24h(self, capability: str, now: datetime) -> None:
         await self._req_24h.insert_one({"ts": now, "capability": capability})
         window = await self._req_24h.count_documents(
@@ -355,7 +375,12 @@ class StatsStore:
             peak = int((doc or {}).get("peak") or 0)
             if window > peak:
                 peak = window
-            out[cap] = {"window": window, "peak": peak}
+            recv = int(
+                await self._recv_24h.count_documents(
+                    {"capability": cap, "ts": {"$gte": since}}
+                )
+            )
+            out[cap] = {"window": window, "peak": peak, "recv": recv}
         return out
 
     @staticmethod
@@ -644,6 +669,9 @@ class NullStatsStore:
     def enqueue_failure(self, **_kwargs: Any) -> None:
         return None
 
+    def enqueue_recv(self, capability: str = "chat") -> None:
+        return None
+
     async def record(self, **_kwargs: Any) -> None:
         return None
 
@@ -681,6 +709,6 @@ class NullStatsStore:
 
     async def snapshot_peak_24h(self) -> dict[str, dict[str, int]]:
         return {
-            "chat": {"window": 0, "peak": 0},
-            "embed": {"window": 0, "peak": 0},
+            "chat": {"window": 0, "peak": 0, "recv": 0},
+            "embed": {"window": 0, "peak": 0, "recv": 0},
         }

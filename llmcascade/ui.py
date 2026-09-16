@@ -77,6 +77,7 @@ def filter_dashboard(data: dict[str, Any], capability: str) -> dict[str, Any]:
     out["peak_24h"] = {
         "window": int(row.get("window") or 0),
         "peak": int(row.get("peak") or 0),
+        "recv": int(row.get("recv") or 0),
     }
     if capability == "embed":
         out["gemini_cascade"] = None
