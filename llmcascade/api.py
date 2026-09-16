@@ -722,7 +722,7 @@ async def metrics_endpoint() -> dict[str, Any]:
 
 @app.get("/v1/stats")
 async def stats_endpoint(
-    range: str = Query(default="7d", pattern="^(24h|1d|7d|30d)$"),
+    range: str = Query(default="24h", pattern="^(24h|1d|7d|30d)$"),
     capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
 ) -> dict[str, Any]:
     snap = await _require_client().stats_snapshot(range)

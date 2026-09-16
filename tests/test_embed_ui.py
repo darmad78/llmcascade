@@ -172,6 +172,8 @@ def test_embed_pages_after_login(client: TestClient):
     stats = client.get("/embed/stats")
     assert stats.status_code == 200
     assert "const CAPABILITY = \"embed\"" in stats.text
+    assert 'let range = "24h"' in stats.text
+    assert 'data-range="24h" class="active"' in stats.text
 
     fails = client.get("/embed/failures")
     assert fails.status_code == 200

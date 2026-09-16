@@ -210,8 +210,8 @@
   <div class="toolbar">
     <label for="range">Range</label>
     <div class="range-btns" id="range" role="group" aria-label="Time range">
-      <button type="button" data-range="24h">24h</button>
-      <button type="button" data-range="7d" class="active">7d</button>
+      <button type="button" data-range="24h" class="active">24h</button>
+      <button type="button" data-range="7d">7d</button>
       <button type="button" data-range="30d">30d</button>
     </div>
   </div>
@@ -375,7 +375,7 @@
       "#2aabb8", "#3a6ea5", "#3dba7a", "#d4a017", "#e05a5a",
       "#8b7ec8", "#c47a5a", "#6b9bd1", "#9acd7a", "#c9a227",
     ];
-    let range = "7d";
+    let range = "24h";
     const charts = {};
     const serviceVisible = {};
     let lastStats = null;
