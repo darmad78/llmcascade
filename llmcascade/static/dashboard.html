@@ -697,8 +697,7 @@
       const cd = m.cooldown || {};
       const cooling = (cd.remaining_s || 0) > 0;
       const hstate = (m.health && m.health.state) || "";
-      const unavailable =
-        cooling || m.pool === "unavailable" || hstate === "down" || hstate === "auth_error";
+      const unavailable = cooling || m.pool === "unavailable";
       if (unavailable) {
         b = { rpd: 0, rpm: 0, rps: 0, tpm: 0 };
       }

@@ -43,6 +43,14 @@ def test_permanent_ignores_health(tmp_path: Path):
     assert pool.is_unavailable("dead")
 
 
+def test_health_get_404_promotes(tmp_path: Path):
+    pool = ModelPool(path=tmp_path / "pools.json")
+    now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+    pool.mark_unavailable("m1", "credit", now)
+    assert pool.apply_health("m1", state="ok", http_status=404, now=now) == "promoted"
+    assert not pool.is_unavailable("m1")
+
+
 def test_health_410_marks_gone(tmp_path: Path):
     pool = ModelPool(path=tmp_path / "pools.json")
     now = datetime(2026, 9, 15, tzinfo=timezone.utc)

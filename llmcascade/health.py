@@ -64,9 +64,9 @@ def _classify(status_code: int | None, exc: Exception | None) -> tuple[str, str]
         return "auth_error", f"HTTP {status_code}"
     if status_code == 429:
         return "warn", f"HTTP {status_code}"
-    if status_code in (404, 410):
+    if status_code == 410:
         return "down", f"HTTP {status_code}"
-    # Reachable: 2xx/3xx/4xx (incl. 405 Method Not Allowed on GET)
+    # GET on POST-only chat URLs often 404; still reachable. 410 means gone.
     if status_code < 500:
         return "ok", f"HTTP {status_code}"
     return "down", f"HTTP {status_code}"

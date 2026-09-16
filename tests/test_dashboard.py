@@ -49,7 +49,7 @@ def test_health_unavailable_zeros():
 def test_classify_health():
     assert _classify(200, None)[0] == "ok"
     assert _classify(405, None)[0] == "ok"
-    assert _classify(404, None)[0] == "down"
+    assert _classify(404, None)[0] == "ok"
     assert _classify(410, None)[0] == "down"
     assert _classify(429, None)[0] == "warn"
     assert _classify(401, None)[0] == "auth_error"

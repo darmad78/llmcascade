@@ -193,7 +193,7 @@ class ModelPool:
             if until is not None and until > now:
                 return "held"
 
-            if http_status in (404, 410) or "does not exist" in text or "is not found" in text:
+            if http_status == 410 or "does not exist" in text or "is not found" in text:
                 self._unavail[key] = {
                     "kind": "permanent",
                     "available_at": (now + GONE_RETRY).isoformat(),
