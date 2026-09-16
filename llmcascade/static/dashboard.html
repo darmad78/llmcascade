@@ -930,7 +930,6 @@
         inp.addEventListener("change", () => {
           eventTypeVisible[inp.dataset.etype] = inp.checked;
           renderLog($("events"), filterByType(lastEvents), "no events yet");
-          renderLog($("errors"), filterByType(lastErrors), "no errors");
         });
       });
     }
@@ -971,7 +970,7 @@
         lastEvents = data.events || [];
         lastErrors = data.errors || [];
         renderLog($("events"), filterByType(lastEvents), "no events yet");
-        renderLog($("errors"), filterByType(lastErrors), "no errors");
+        renderLog($("errors"), lastErrors, "no errors");
         const q = data.queue || {};
         const next = data.next_pick
           ? `next ${data.next_pick.name}`
