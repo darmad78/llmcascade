@@ -13,8 +13,10 @@ import json
 import os
 import re
 import smtplib
+import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Literal
@@ -29,6 +31,9 @@ from llmcascade.secrets import data_dir
 from llmcascade.yaml_edit import replace_model_id
 
 ProbeKind = Literal["free", "paid", "gone", "error"]
+MAX_RUNS = 40
+MAX_CATALOG_IDS = 80
+_STATE_LOCK = threading.Lock()
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -85,19 +90,41 @@ def _state_path() -> Path:
     return data_dir() / "retire_watch.json"
 
 
+def _empty_state() -> dict[str, Any]:
+    return {
+        "replacements": {},
+        "abandoned": {},
+        "runs": [],
+        "interval_s": _env_int("RETIRE_WATCH_INTERVAL_S", 120),
+        "pid": None,
+        "last_poll_at": None,
+        "last_error": None,
+        "started_at": None,
+    }
+
+
 def load_state() -> dict[str, Any]:
     path = _state_path()
+    empty = _empty_state()
     if not path.is_file():
-        return {"replacements": {}, "abandoned": {}}
+        return empty
     try:
         raw = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
-        return {"replacements": {}, "abandoned": {}}
+        return empty
     if not isinstance(raw, dict):
-        return {"replacements": {}, "abandoned": {}}
-    raw.setdefault("replacements", {})
-    raw.setdefault("abandoned", {})
-    return raw
+        return empty
+    empty.update(raw)
+    empty.setdefault("replacements", {})
+    empty.setdefault("abandoned", {})
+    empty.setdefault("runs", [])
+    if not isinstance(empty.get("runs"), list):
+        empty["runs"] = []
+    if not isinstance(empty.get("replacements"), dict):
+        empty["replacements"] = {}
+    if not isinstance(empty.get("abandoned"), dict):
+        empty["abandoned"] = {}
+    return empty
 
 
 def save_state(state: dict[str, Any]) -> None:
@@ -107,6 +134,74 @@ def save_state(state: dict[str, Any]) -> None:
         path.chmod(0o600)
     except OSError:
         pass
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_iso(raw: str) -> datetime | None:
+    try:
+        return datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def mark_watcher_alive(*, pid: int, interval_s: int) -> None:
+    with _STATE_LOCK:
+        state = load_state()
+        state["pid"] = pid
+        state["interval_s"] = interval_s
+        state["started_at"] = state.get("started_at") or _iso_now()
+        save_state(state)
+
+
+def append_run(run: dict[str, Any]) -> None:
+    with _STATE_LOCK:
+        state = load_state()
+        runs = list(state.get("runs") or [])
+        runs.insert(0, run)
+        state["runs"] = runs[:MAX_RUNS]
+        state["last_poll_at"] = str(run.get("at") or _iso_now())
+        err = run.get("error")
+        state["last_error"] = str(err) if err else None
+        save_state(state)
+
+
+def snapshot(*, now: float | None = None) -> dict[str, Any]:
+    now = time.time() if now is None else now
+    with _STATE_LOCK:
+        state = load_state()
+    interval = int(state.get("interval_s") or _env_int("RETIRE_WATCH_INTERVAL_S", 120))
+    last = str(state.get("last_poll_at") or "")
+    age_s: int | None = None
+    parsed = _parse_iso(last) if last else None
+    if parsed is not None:
+        age_s = max(0, int((datetime.fromtimestamp(now, tz=timezone.utc) - parsed).total_seconds()))
+    stale_after = max(interval * 3, interval + 30)
+    running = age_s is not None and age_s <= stale_after
+    replacements = []
+    for old, row in (state.get("replacements") or {}).items():
+        if isinstance(row, dict):
+            replacements.append({"old": old, **row})
+        else:
+            replacements.append({"old": old, "new": str(row)})
+    abandoned = []
+    for mid, reason in (state.get("abandoned") or {}).items():
+        abandoned.append({"id": mid, "reason": str(reason)})
+    return {
+        "running": running,
+        "stale": bool(last) and not running,
+        "interval_s": interval,
+        "pid": state.get("pid"),
+        "started_at": state.get("started_at"),
+        "last_poll_at": last or None,
+        "last_error": state.get("last_error"),
+        "age_s": age_s,
+        "replacements": replacements,
+        "abandoned": abandoned,
+        "runs": list(state.get("runs") or []),
+    }
 
 
 @dataclass(frozen=True)
@@ -417,13 +512,25 @@ class RetireWatch:
         )
         resp.raise_for_status()
 
-    async def replace_one(self, target: RetiredTarget) -> dict[str, str] | None:
-        catalog = [i for i in await self.list_catalog(target) if i != target.model_id]
+    async def replace_one(
+        self, target: RetiredTarget, job: dict[str, Any] | None = None
+    ) -> dict[str, str] | None:
+        job = job if job is not None else {}
+        try:
+            catalog = [i for i in await self.list_catalog(target) if i != target.model_id]
+        except Exception as exc:
+            job["catalog_error"] = str(exc)
+            job["catalog"] = []
+            job["catalog_n"] = 0
+            raise RuntimeError(f"catalog fetch failed for {target.model_id}: {exc}") from exc
         existing = {m.name for m in self._load_models()}
         if target.cascade_parent:
             parent = next(m for m in self._load_models() if m.name == target.cascade_parent)
             existing.update(parent.cascade)
         catalog = [i for i in catalog if i not in existing or i == target.model_id]
+        job["catalog_n"] = len(catalog)
+        job["catalog"] = catalog[:MAX_CATALOG_IDS]
+        job["probes"] = []
         tried: list[str] = []
         last_reason = "no catalog"
         max_tries = min(8, max(1, len(catalog)))
@@ -436,9 +543,11 @@ class RetireWatch:
                 suggested = remaining[0]
             tried.append(suggested)
             kind = await self.probe(target, suggested)
+            job["probes"].append({"id": suggested, "kind": kind})
             if kind == "free":
                 self.apply_yaml(target.model_id, suggested)
                 await self.reload_api()
+                job["chosen"] = suggested
                 return {"old": target.model_id, "new": suggested, "provider": target.provider}
             last_reason = kind
             if kind == "error":
@@ -448,63 +557,98 @@ class RetireWatch:
         )
 
     async def run_once(self) -> list[dict[str, str]]:
-        status = await self._json("GET", "/v1/status")
-        gemini = None
+        run: dict[str, Any] = {
+            "at": _iso_now(),
+            "ok": True,
+            "error": None,
+            "targets": [],
+            "skipped": [],
+            "jobs": [],
+        }
         try:
-            gemini = await self._json("GET", "/v1/status/gemini")
-        except httpx.HTTPError:
-            gemini = status.get("gemini_cascade") if isinstance(status, dict) else None
-        cooldowns = status.get("model_cooldowns") if isinstance(status, dict) else {}
-        models = self._load_models()
-        targets = retired_from_status(
-            models=models, cooldowns=cooldowns or {}, gemini=gemini if isinstance(gemini, dict) else None
-        )
-        state = load_state()
-        done: list[dict[str, str]] = []
-        for target in targets:
-            if target.model_id in (state.get("replacements") or {}):
-                continue
-            if target.model_id in (state.get("abandoned") or {}):
-                continue
+            status = await self._json("GET", "/v1/status")
+            gemini = None
             try:
-                result = await self.replace_one(target)
-            except RuntimeError as exc:
-                state.setdefault("abandoned", {})[target.model_id] = str(exc)
-                save_state(state)
+                gemini = await self._json("GET", "/v1/status/gemini")
+            except httpx.HTTPError:
+                gemini = status.get("gemini_cascade") if isinstance(status, dict) else None
+            cooldowns = status.get("model_cooldowns") if isinstance(status, dict) else {}
+            models = self._load_models()
+            targets = retired_from_status(
+                models=models,
+                cooldowns=cooldowns or {},
+                gemini=gemini if isinstance(gemini, dict) else None,
+            )
+            run["targets"] = [t.model_id for t in targets]
+            with _STATE_LOCK:
+                state = load_state()
+            done: list[dict[str, str]] = []
+            for target in targets:
+                if target.model_id in (state.get("replacements") or {}):
+                    run["skipped"].append({"id": target.model_id, "reason": "already replaced"})
+                    continue
+                if target.model_id in (state.get("abandoned") or {}):
+                    run["skipped"].append({"id": target.model_id, "reason": "abandoned"})
+                    continue
+                job: dict[str, Any] = {
+                    "id": target.model_id,
+                    "provider": target.provider,
+                }
+                try:
+                    result = await self.replace_one(target, job=job)
+                except RuntimeError as exc:
+                    job["error"] = str(exc)
+                    run["jobs"].append(job)
+                    with _STATE_LOCK:
+                        state = load_state()
+                        state.setdefault("abandoned", {})[target.model_id] = str(exc)
+                        save_state(state)
+                    try:
+                        send_admin_email(
+                            f"llmcascade: could not replace {target.model_id}",
+                            f"Provider {target.provider} model `{target.model_id}` is retired.\n\n{exc}\n",
+                        )
+                    except Exception:
+                        pass
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    job["error"] = str(exc)
+                    run["jobs"].append(job)
+                    continue
+                run["jobs"].append(job)
+                if not result:
+                    continue
+                with _STATE_LOCK:
+                    state = load_state()
+                    state.setdefault("replacements", {})[target.model_id] = {
+                        **result,
+                        "at": _iso_now(),
+                    }
+                    save_state(state)
                 try:
                     send_admin_email(
-                        f"llmcascade: could not replace {target.model_id}",
-                        f"Provider {target.provider} model `{target.model_id}` is retired.\n\n{exc}\n",
+                        f"llmcascade: replaced {result['old']}",
+                        (
+                            f"Retired `{result['old']}` on {result['provider']}.\n"
+                            f"Now using `{result['new']}`.\n"
+                            "models.yaml was updated and the API registry was reloaded.\n"
+                        ),
                     )
                 except Exception:
                     pass
-                continue
-            except Exception:
-                continue
-            if not result:
-                continue
-            state.setdefault("replacements", {})[target.model_id] = {
-                **result,
-                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            save_state(state)
-            try:
-                send_admin_email(
-                    f"llmcascade: replaced {result['old']}",
-                    (
-                        f"Retired `{result['old']}` on {result['provider']}.\n"
-                        f"Now using `{result['new']}`.\n"
-                        "models.yaml was updated and the API registry was reloaded.\n"
-                    ),
-                )
-            except Exception:
-                pass
-            done.append(result)
-        return done
+                done.append(result)
+            append_run(run)
+            return done
+        except Exception as exc:  # noqa: BLE001
+            run["ok"] = False
+            run["error"] = str(exc)
+            append_run(run)
+            raise
 
 
 async def async_main(interval_s: int) -> None:
     load_env_files()
+    mark_watcher_alive(pid=os.getpid(), interval_s=interval_s)
     base = (os.environ.get("LLMCASCADE_BASE_URL") or "http://127.0.0.1:12000").rstrip("/")
     models_path = Path(os.environ.get("LLMCASCADE_MODELS_YAML") or default_models_path())
     async with httpx.AsyncClient() as http:
@@ -524,6 +668,7 @@ def main() -> None:
     parser.add_argument("--interval", type=int, default=0)
     args = parser.parse_args()
     interval = args.interval or _env_int("RETIRE_WATCH_INTERVAL_S", 120)
+    mark_watcher_alive(pid=os.getpid(), interval_s=interval)
     if args.once:
         async def _once() -> None:
             load_env_files()

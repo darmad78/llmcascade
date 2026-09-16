@@ -98,6 +98,25 @@
       border-radius: 6px;
       padding: 0.85rem;
     }
+    .panel-head {
+      display: flex; align-items: center; gap: 0.55rem; width: 100%;
+      background: transparent !important; border: none !important; color: inherit;
+      cursor: pointer; text-align: left; padding: 0 !important; font: inherit;
+      filter: none !important; border-radius: 0;
+    }
+    .panel-head:hover, .panel-head:active, .panel-head.is-pressed, .panel-head.is-clicked {
+      background: transparent !important; color: inherit; filter: none !important; border: none !important;
+    }
+    .panel-head:hover .section-title { color: var(--text); }
+    .panel-head .chevron { font-family: var(--mono); color: var(--muted); min-width: 1rem; }
+    .panel-head .section-title {
+      margin: 0; flex: 1;
+      font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+    }
+    .panel-head .count { color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
+    .panel.is-collapsed .panel-body { display: none; }
+    .panel-body { margin-top: 0.6rem; }
     .peak-24h {
       display: flex;
       flex-wrap: wrap;
@@ -416,19 +435,33 @@
   </header>
   <div class="shell">
   <main>
-    <section class="panel">
-      <h2>Last 24 hours</h2>
+    <section class="panel" data-section="peak">
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">Last 24 hours</span>
+      </button>
+      <div class="panel-body">
       <div class="peak-24h" id="peak-24h">
         <div><span class="lbl">handled</span><span class="num" id="peak-window">—</span></div>
         <div><span class="lbl">max</span><span class="num" id="peak-max">—</span></div>
       </div>
+      </div>
     </section>
-    <section class="panel">
-      <h2>__MODELS_HEADING__</h2>
-      <p class="chat-hint">Available models are dispatched. Unavailable models switch back in after cooldown + health, except gone IDs which wait for a replacement.</p>
+    <section class="panel" data-section="models-legend">
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">__MODELS_HEADING__</span>
+      </button>
+      <div class="panel-body">
+      <p class="chat-hint">Available models are dispatched. Unavailable return after cooldown and a health probe. Gone IDs wait for a replacement. Replaced lists old → new from retire-watch.</p>
+      </div>
     </section>
-    <section class="panel">
-      <h2>Available</h2>
+    <section class="panel" data-section="available">
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">Available <span class="count" id="count-available"></span></span>
+      </button>
+      <div class="panel-body">
       <p class="chat-hint">Dispatch pool — health-ok models not in cooldown.</p>
       <div style="overflow-x:auto">
         <table>
@@ -449,10 +482,15 @@
           <tbody id="models"></tbody>
         </table>
       </div>
+      </div>
     </section>
-    <section class="panel">
-      <h2>Unavailable</h2>
-      <p class="chat-hint">Out of dispatch. Cooldown/auth return after a health probe; gone IDs stay out until replaced.</p>
+    <section class="panel" data-section="unavailable">
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">Unavailable <span class="count" id="count-unavailable"></span></span>
+      </button>
+      <div class="panel-body">
+      <p class="chat-hint">Out of dispatch for cooldown, credit, auth, or health. Returns after the timer and a health probe.</p>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -472,9 +510,64 @@
           <tbody id="models-unavailable"></tbody>
         </table>
       </div>
+      </div>
     </section>
-    <section class="panel" id="gemini-panel" hidden>
-      <h2>Gemini chat cascade</h2>
+    <section class="panel" data-section="gone">
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">Gone <span class="count" id="count-gone"></span></span>
+      </button>
+      <div class="panel-body">
+      <p class="chat-hint">Retired model IDs (404/410). Stay out until retire-watch or you swap in a new ID.</p>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Key</th>
+              <th>Active</th>
+              <th>Free/Paid</th>
+              <th>Health</th>
+              <th>Free tier</th>
+              <th>Free left</th>
+              <th>Budget left</th>
+              <th>Reqs</th>
+              <th>Fails</th>
+            </tr>
+          </thead>
+          <tbody id="models-gone"></tbody>
+        </table>
+      </div>
+      </div>
+    </section>
+    <section class="panel" data-section="replaced">
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">Replaced <span class="count" id="count-replaced"></span></span>
+      </button>
+      <div class="panel-body">
+      <p class="chat-hint">Retire-watch swapped these IDs. The new ID stays in Available if it is healthy.</p>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Old</th>
+              <th>New</th>
+              <th>Provider</th>
+              <th>At</th>
+            </tr>
+          </thead>
+          <tbody id="models-replaced"></tbody>
+        </table>
+      </div>
+      </div>
+    </section>
+    <section class="panel" id="gemini-panel" data-section="gemini" hidden>
+      <button type="button" class="panel-head" aria-expanded="true">
+        <span class="chevron" aria-hidden="true">▾</span>
+        <span class="section-title">Gemini chat cascade</span>
+      </button>
+      <div class="panel-body">
       <div class="summary" id="gemini-summary"></div>
       <div style="overflow-x:auto">
         <table>
@@ -490,17 +583,28 @@
           <tbody id="gemini-rows"></tbody>
         </table>
       </div>
+      </div>
     </section>
     <section class="logs">
-      <div class="panel">
-        <h2>Event log</h2>
+      <section class="panel" data-section="events">
+        <button type="button" class="panel-head" aria-expanded="true">
+          <span class="chevron" aria-hidden="true">▾</span>
+          <span class="section-title">Event log</span>
+        </button>
+        <div class="panel-body">
         <div class="event-filters" id="event-filters" aria-label="Filter event types"></div>
         <div class="log-window" id="events"><span class="empty">no events yet</span></div>
-      </div>
-      <div class="panel">
-        <h2>Error log</h2>
+        </div>
+      </section>
+      <section class="panel" data-section="errors">
+        <button type="button" class="panel-head" aria-expanded="true">
+          <span class="chevron" aria-hidden="true">▾</span>
+          <span class="section-title">Error log</span>
+        </button>
+        <div class="panel-body">
         <div class="log-window" id="errors"><span class="empty">no errors</span></div>
-      </div>
+        </div>
+      </section>
     </section>
   </main>
   <aside class="chat" aria-label="Project chatbot">
@@ -611,7 +715,7 @@
         if (cd.waiting_health) {
           note = `${escapeHtml(cd.kind || "cooldown")} · waiting health probe`;
         } else if (cd.kind === "permanent") {
-          note = "gone · stays out until a new model ID replaces it";
+          note = "gone · waiting for a replacement ID";
         } else if (hstate === "down" || hstate === "auth_error") {
           note = "unavailable · remaining 0";
         } else if (cd.kind === "auth") {
@@ -642,11 +746,11 @@
         <div class="free-note">${escapeHtml(m.free_tier_note || "")}</div>`;
     }
 
-    function renderModels(tbodyId, models, nextPick) {
+    function renderModels(tbodyId, models, nextPick, emptyMsg) {
       const tb = $(tbodyId);
       if (!tb) return;
       if (!models.length) {
-        tb.innerHTML = `<tr><td colspan="10" class="budget">none configured</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="10" class="budget">${emptyMsg || "none configured"}</td></tr>`;
         return;
       }
       tb.innerHTML = models.map((m) => {
@@ -675,6 +779,60 @@
           <td>${m.failures_total}</td>
         </tr>`;
       }).join("");
+    }
+
+    function renderReplacements(rows) {
+      const tb = $("models-replaced");
+      if (!tb) return;
+      if (!rows.length) {
+        tb.innerHTML = `<tr><td colspan="4" class="budget">none yet</td></tr>`;
+        return;
+      }
+      tb.innerHTML = rows.map((r) => `<tr>
+        <td><div class="name">${escapeHtml(r.old)}</div></td>
+        <td><div class="name">${escapeHtml(r.new)}</div></td>
+        <td class="provider">${escapeHtml(r.provider || "—")}</td>
+        <td class="budget">${escapeHtml(r.at || "—")}</td>
+      </tr>`).join("");
+    }
+
+    function setCount(id, n) {
+      const el = $(id);
+      if (el) el.textContent = `(${n})`;
+    }
+
+    function isGone(m) {
+      return (m.cooldown || {}).kind === "permanent";
+    }
+
+    const SECTION_STORE = "llmcascade.dashboardSections";
+    function setSectionOpen(panel, open) {
+      panel.classList.toggle("is-collapsed", !open);
+      const head = panel.querySelector(".panel-head");
+      const chev = panel.querySelector(".panel-head .chevron");
+      if (head) head.setAttribute("aria-expanded", open ? "true" : "false");
+      if (chev) chev.textContent = open ? "▾" : "▸";
+    }
+    function persistSections() {
+      const state = {};
+      document.querySelectorAll(".panel[data-section]").forEach((p) => {
+        state[p.dataset.section] = !p.classList.contains("is-collapsed");
+      });
+      try { localStorage.setItem(SECTION_STORE, JSON.stringify(state)); } catch { /* ignore */ }
+    }
+    function bindSections() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(SECTION_STORE) || "{}"); } catch { saved = {}; }
+      document.querySelectorAll(".panel[data-section]").forEach((panel) => {
+        const id = panel.dataset.section;
+        if (Object.prototype.hasOwnProperty.call(saved, id)) setSectionOpen(panel, !!saved[id]);
+        const head = panel.querySelector(".panel-head");
+        if (!head) return;
+        head.addEventListener("click", () => {
+          setSectionOpen(panel, panel.classList.contains("is-collapsed"));
+          persistSections();
+        });
+      });
     }
 
     function renderGemini(g, panelId, summaryId, rowsId) {
@@ -791,10 +949,23 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const models = data.models || [];
-        const available = models.filter((m) => m.pool !== "unavailable");
-        const unavailable = models.filter((m) => m.pool === "unavailable");
+        const reps = data.replacements || [];
+        const replacedOld = new Set(reps.map((r) => r.old).filter(Boolean));
+        const gone = models.filter((m) => isGone(m) && !replacedOld.has(m.name));
+        const unavailable = models.filter((m) =>
+          m.pool === "unavailable" && !isGone(m) && !replacedOld.has(m.name)
+        );
+        const available = models.filter((m) =>
+          m.pool !== "unavailable" && !isGone(m) && !replacedOld.has(m.name)
+        );
         renderModels("models", available, data.next_pick);
-        renderModels("models-unavailable", unavailable, null);
+        renderModels("models-unavailable", unavailable, null, "none");
+        renderModels("models-gone", gone, null, "none");
+        renderReplacements(reps);
+        setCount("count-available", available.length);
+        setCount("count-unavailable", unavailable.length);
+        setCount("count-gone", gone.length);
+        setCount("count-replaced", reps.length);
         fillEmbedModels(models, data.next_pick);
         renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
         lastEvents = data.events || [];
@@ -877,6 +1048,7 @@
     }
 
     renderEventFilters();
+    bindSections();
     refresh();
     setInterval(refresh, 2000);
 
@@ -886,7 +1058,8 @@
       "It picks an eligible free model from live rate-limit budgets (rpd/rpm/rps/tpm),",
       "calls that provider's HTTP API, and falls back on failure.",
       "Library: RouterClient. Optional FastAPI layer with POST /v1/complete.",
-      "Dashboard at /dashboard shows model health, budgets, Gemini cascade, event/error logs.",
+      "Dashboard at /dashboard shows Available, Unavailable, Gone, and Replaced model tables, plus Gemini cascade and event/error logs.",
+      "Unavailable is cooldown/credit/auth/health. Gone is a retired 404/410 ID waiting for replacement. Replaced is old → new from retire-watch.",
       "Gemini models share a cascade family with cooldowns; other providers use per-model budgets.",
       "Answer questions about this project only. Be concise and accurate.",
     ].join(" ");

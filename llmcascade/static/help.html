@@ -398,8 +398,8 @@
           <span class="code">cooldown [rate|daily|permanent|…]</span>
         </div>
         <p class="title">Model cooldown applied</p>
-        <p class="what">llmcascade moved the model to the unavailable pool after a classified failure. Rate/daily/credit/auth return only after cooldown <em>and</em> a health probe. 404/410 stay out until retire-watch (or you) adds a new ID.</p>
-        <p class="fix"><strong>Fix:</strong> Wait for health switch-in; add another keyed provider. Retired IDs (`permanent` / 404 / 410) are replaced by `llmcascade.retire_watch`.</p>
+        <p class="what">llmcascade moved the model out of dispatch after a classified failure. Rate/daily/credit/auth sit in Unavailable and return after cooldown <em>and</em> a health probe. 404/410 sit in Gone until retire-watch (or you) adds a new ID; completed swaps are listed under Replaced.</p>
+        <p class="fix"><strong>Fix:</strong> Wait for health switch-in; add another keyed provider. Retired IDs (`permanent` / 404 / 410) are replaced by `llmcascade.retire_watch`. Watch polls, catalogs, and probes on <a href="/retire-watch">/retire-watch</a>.</p>
       </div>
 
       <div class="row">

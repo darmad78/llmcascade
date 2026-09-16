@@ -172,13 +172,32 @@ async def test_replace_one_writes_yaml_and_reloads(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(watch, "probe", fake_probe)
     monkeypatch.setattr(watch, "reload_api", fake_reload)
 
+    job: dict = {}
     target = RetiredTarget(
         model_id="old-model",
         provider="groq",
         endpoint="https://api.groq.com/openai/v1/chat/completions",
         auth_env_var="GROQ_API_KEY",
     )
-    result = await watch.replace_one(target)
+    result = await watch.replace_one(target, job=job)
     assert result["new"] == "free-id"
+    assert job["catalog_n"] == 2
+    assert job["probes"] == [
+        {"id": "paid-id", "kind": "paid"},
+        {"id": "free-id", "kind": "free"},
+    ]
     assert "name: free-id" in yaml_path.read_text()
     assert reloads == [True]
+
+
+def test_snapshot_offline_until_poll(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("LLMCASCADE_DATA_DIR", str(tmp_path))
+    import llmcascade.retire_watch as rw
+
+    snap = rw.snapshot()
+    assert snap["running"] is False
+    assert snap["runs"] == []
+    rw.append_run({"at": rw._iso_now(), "ok": True, "jobs": [], "targets": []})
+    live = rw.snapshot()
+    assert live["running"] is True
+    assert live["runs"][0]["ok"] is True

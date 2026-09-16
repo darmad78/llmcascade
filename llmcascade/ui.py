@@ -27,10 +27,16 @@ def nav_html(area: str, active: str) -> str:
         ("status", f"{prefix}/dashboard" if prefix else "/dashboard", "Status"),
         ("stats", f"{prefix}/stats" if prefix else "/stats", "Stats"),
         ("failures", f"{prefix}/failures" if prefix else "/failures", "Failures"),
-        ("providers", providers, "Providers"),
-        ("help", help_href, "Help"),
-        ("logout", "/logout", "Logout"),
     ]
+    if llm:
+        items.append(("retire", "/retire-watch", "Retire"))
+    items.extend(
+        [
+            ("providers", providers, "Providers"),
+            ("help", help_href, "Help"),
+            ("logout", "/logout", "Logout"),
+        ]
+    )
     llm_cls = "nav-btn is-active" if llm else "nav-btn"
     embed_cls = "nav-btn is-active" if not llm else "nav-btn"
     sub = []
@@ -75,8 +81,10 @@ def filter_dashboard(data: dict[str, Any], capability: str) -> dict[str, Any]:
     if capability == "embed":
         out["gemini_cascade"] = None
         out["next_pick"] = data.get("next_embed")
+        out["replacements"] = []
     else:
         out["next_embed"] = None
+        out["replacements"] = list(data.get("replacements") or [])
     return out
 
 

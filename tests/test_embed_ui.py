@@ -20,6 +20,13 @@ def test_nav_html_embed_prefix():
     assert "Embeddings" in html
     assert "nav-stack" in html
     assert html.find("area-nav") < html.find("page-nav")
+    assert "/retire-watch" not in html
+
+
+def test_nav_html_llm_has_retire():
+    html = nav_html("llm", "retire")
+    assert 'href="/retire-watch"' in html
+    assert "is-active" in html
 
 
 def test_filter_stats_infers_embed_without_capability_field():
@@ -71,15 +78,21 @@ def test_filter_dashboard_keeps_embed_models_only():
         "next_pick": {"name": "a"},
         "next_embed": {"name": "b"},
         "gemini_cascade": {"x": 1},
+        "replacements": [{"old": "dead-id", "new": "live-id", "provider": "groq"}],
     }
     out = filter_dashboard(data, "embed")
     assert [m["name"] for m in out["models"]] == ["b"]
     assert out["next_pick"]["name"] == "b"
     assert out["gemini_cascade"] is None
+    assert out["replacements"] == []
     types = [(e.get("type"), e.get("capability")) for e in out["events"]]
     assert ("request_ok", "embed") in types
     assert ("system", None) in types
     assert ("request_ok", "chat") not in types
+
+    chat = filter_dashboard(data, "chat")
+    assert chat["replacements"] == data["replacements"]
+    assert [m["name"] for m in chat["models"]] == ["a"]
 
 
 @pytest.fixture(autouse=True)
@@ -170,11 +183,28 @@ def test_embed_pages_after_login(client: TestClient):
 
     llm = client.get("/dashboard")
     assert llm.status_code == 200
+    assert 'href="/retire-watch"' in llm.text
     assert "Configured models" in llm.text
     assert "Available" in llm.text
     assert "Unavailable" in llm.text
+    assert "Gone" in llm.text
+    assert "Replaced" in llm.text
     assert 'id="models-unavailable"' in llm.text
+    assert 'id="models-gone"' in llm.text
+    assert 'id="models-replaced"' in llm.text
+    assert 'data-section="available"' in llm.text
+    assert "llmcascade.dashboardSections" in llm.text
     assert "const CAPABILITY = \"chat\"" in llm.text
+
+    retire = client.get("/retire-watch")
+    assert retire.status_code == 200
+    assert "/v1/retire-watch" in retire.text
+    assert 'class="nav-btn is-active" href="/retire-watch"' in retire.text
+    data = client.get("/v1/retire-watch")
+    assert data.status_code == 200
+    body = data.json()
+    assert "running" in body
+    assert "runs" in body
 
 
 def test_dashboard_and_stats_capability_query(client: TestClient):
@@ -183,8 +213,13 @@ def test_dashboard_and_stats_capability_query(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body.get("capability") == "embed"
+    assert body.get("replacements") == []
     for m in body.get("models") or []:
         assert "embed" in (m.get("capabilities") or [])
+
+    chat = client.get("/v1/dashboard?capability=chat")
+    assert chat.status_code == 200
+    assert isinstance(chat.json().get("replacements"), list)
 
     r = client.get("/v1/stats?capability=embed")
     assert r.status_code == 200

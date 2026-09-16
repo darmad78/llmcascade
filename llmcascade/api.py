@@ -59,6 +59,7 @@ from llmcascade.model_store import (
     set_override,
     upsert_custom_model,
 )
+from llmcascade.retire_watch import snapshot as retire_watch_snapshot
 from llmcascade.ui import filter_dashboard, filter_stats_snapshot, nav_html
 from llmcascade.health import probe_model
 from llmcascade.registry import ModelConfig, Limits
@@ -81,6 +82,7 @@ _LOGIN_HTML = _STATIC / "login.html"
 _CHANGE_PASSWORD_HTML = _STATIC / "change_password.html"
 _ADMIN_PROVIDERS_HTML = _STATIC / "admin_providers.html"
 _HELP_HTML = _STATIC / "help.html"
+_RETIRE_HTML = _STATIC / "retire_watch.html"
 
 
 class CompleteRequest(BaseModel):
@@ -298,13 +300,14 @@ async def admin_auth_middleware(request: Request, call_next):
             "/dashboard",
             "/stats",
             "/failures",
+            "/retire-watch",
         ) or path.startswith("/admin") or path.startswith("/embed/"):
             return RedirectResponse(url="/login", status_code=303)
         return JSONResponse({"detail": "authentication required"}, status_code=401)
 
     _user, claims = session
     if claims.must_change_password and not path_allowed_during_password_change(path):
-        if wants_html(request.headers.get("accept")) or path.startswith("/admin") or path.startswith("/embed/") or path in ("/dashboard", "/stats", "/failures"):
+        if wants_html(request.headers.get("accept")) or path.startswith("/admin") or path.startswith("/embed/") or path in ("/dashboard", "/stats", "/failures", "/retire-watch"):
             return RedirectResponse(url="/admin/change-password", status_code=303)
         return JSONResponse({"detail": "password change required"}, status_code=403)
 
@@ -754,6 +757,7 @@ async def dashboard_data(
     capability: str | None = Query(default=None, pattern="^(chat|embed)$"),
 ) -> dict[str, Any]:
     snap = await _require_client().dashboard_snapshot(force_health=force_health)
+    snap["replacements"] = list((retire_watch_snapshot().get("replacements") or []))
     if capability:
         snap = filter_dashboard(snap, capability)
     return snap
@@ -777,6 +781,16 @@ async def stats_page() -> HTMLResponse:
 @app.get("/embed/stats")
 async def embed_stats_page() -> HTMLResponse:
     return _html_file(_STATS_HTML, area="embed", active="stats")
+
+
+@app.get("/v1/retire-watch")
+async def retire_watch_data() -> dict[str, Any]:
+    return retire_watch_snapshot()
+
+
+@app.get("/retire-watch")
+async def retire_watch_page() -> HTMLResponse:
+    return _html_file(_RETIRE_HTML, area="llm", active="retire")
 
 
 @app.get("/failures")

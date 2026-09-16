@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmcascade · retire-watch</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --line: #2a3544;
+      --text: #d6dde6;
+      --muted: #8b97a8;
+      --ok: #3dba7a;
+      --warn: #d4a017;
+      --bad: #e05a5a;
+      --accent: #3a6ea5;
+      --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+      --sans: "IBM Plex Sans", "Source Sans 3", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(1100px 520px at 8% -12%, #1a3340 0%, transparent 55%),
+        var(--bg);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .header-left { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.85rem 1.25rem; }
+    h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -0.02em; }
+    h1 span { color: var(--muted); font-weight: 500; }
+    .nav-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 0.45rem; }
+    .area-nav, .page-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .nav-btn {
+      display: inline-block; padding: 0.28rem 0.7rem; border-radius: 4px;
+      border: 1px solid var(--line); color: var(--muted); text-decoration: none;
+      font-size: 0.78rem; font-weight: 550;
+    }
+    .nav-btn:hover { color: var(--text); border-color: var(--muted); }
+    .nav-btn.is-active {
+      color: var(--text);
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+      background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+    }
+    .meta { color: var(--muted); font-size: 0.85rem; font-family: var(--mono); text-align: right; }
+    main { display: grid; gap: 1rem; padding: 1rem 1.5rem 2rem; }
+    h2 {
+      margin: 0 0 0.6rem; font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+    }
+    .panel {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border: 1px solid var(--line); border-radius: 8px; padding: 0.85rem;
+    }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+    @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .kpi {
+      padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 8px;
+      background: #0b1015;
+    }
+    .kpi .label {
+      color: var(--muted); font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 0.35rem;
+    }
+    .kpi .value { font-family: var(--mono); font-size: 1.15rem; font-weight: 550; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 550; font-size: 0.72rem; text-transform: uppercase; }
+    .mono { font-family: var(--mono); font-size: 0.8rem; }
+    .muted { color: var(--muted); }
+    .run { margin-bottom: 0.85rem; padding-bottom: 0.85rem; border-bottom: 1px solid var(--line); }
+    .run:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .chip {
+      font-family: var(--mono); font-size: 0.72rem; padding: 0.15rem 0.4rem;
+      border: 1px solid var(--line); border-radius: 4px; background: #0b1015;
+    }
+    .empty { color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>llmcascade <span>retire-watch</span></h1>
+      __NAV__
+    </div>
+    <div class="meta" id="meta">loading…</div>
+  </header>
+  <main>
+    <section class="kpi-row" id="kpis"></section>
+    <section class="panel">
+      <h2>Replacements</h2>
+      <div id="replacements" class="empty">none yet</div>
+    </section>
+    <section class="panel">
+      <h2>Abandoned</h2>
+      <div id="abandoned" class="empty">none</div>
+    </section>
+    <section class="panel">
+      <h2>Polls · catalogs · probes</h2>
+      <div id="runs" class="empty">waiting for a poll</div>
+    </section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+    function statusClass(d) {
+      if (d.running) return "ok";
+      if (d.stale) return "warn";
+      return "bad";
+    }
+    function statusLabel(d) {
+      if (d.running) return "running";
+      if (d.stale) return "stale";
+      return "offline";
+    }
+    function table(headers, rows) {
+      if (!rows.length) return "";
+      return `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    function render(d) {
+      $("meta").textContent = `poll every ${d.interval_s}s · last ${d.last_poll_at || "never"}`;
+      const age = d.age_s == null ? "—" : `${d.age_s}s ago`;
+      $("kpis").innerHTML = [
+        ["process", `<span class="${statusClass(d)}">${statusLabel(d)}</span>`],
+        ["pid", d.pid ?? "—"],
+        ["last poll", age],
+        ["last error", d.last_error ? `<span class="bad">${escapeHtml(d.last_error)}</span>` : "none"],
+      ].map(([label, value]) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`).join("");
+      const reps = (d.replacements || []).map((r) =>
+        `<tr><td class="mono">${escapeHtml(r.old)}</td><td class="mono">${escapeHtml(r.new)}</td><td>${escapeHtml(r.provider || "")}</td><td class="muted">${escapeHtml(r.at || "")}</td></tr>`
+      );
+      $("replacements").innerHTML = reps.length
+        ? table(["old", "new", "provider", "at"], reps.join(""))
+        : `<p class="empty">none yet</p>`;
+      const abd = (d.abandoned || []).map((r) =>
+        `<tr><td class="mono">${escapeHtml(r.id)}</td><td>${escapeHtml(r.reason)}</td></tr>`
+      );
+      $("abandoned").innerHTML = abd.length
+        ? table(["id", "reason"], abd.join(""))
+        : `<p class="empty">none</p>`;
+      const runs = d.runs || [];
+      if (!runs.length) {
+        $("runs").innerHTML = `<p class="empty">waiting for a poll</p>`;
+        return;
+      }
+      $("runs").innerHTML = runs.map((run) => {
+        const skipped = (run.skipped || []).map((s) =>
+          `<span class="chip">${escapeHtml(s.id)} · ${escapeHtml(s.reason)}</span>`
+        ).join("");
+        const jobs = (run.jobs || []).map((job) => {
+          const probes = (job.probes || []).map((p) =>
+            `<span class="chip">${escapeHtml(p.id)} · ${escapeHtml(p.kind)}</span>`
+          ).join("") || `<span class="muted">no probes</span>`;
+          const cats = (job.catalog || []).map((id) =>
+            `<span class="chip">${escapeHtml(id)}</span>`
+          ).join("");
+          const extra = job.catalog_n > (job.catalog || []).length
+            ? `<span class="muted">+${job.catalog_n - (job.catalog || []).length} more</span>`
+            : "";
+          return `<div>
+            <p class="mono"><strong>${escapeHtml(job.id)}</strong> · ${escapeHtml(job.provider || "")}${job.chosen ? ` · chose ${escapeHtml(job.chosen)}` : ""}${job.error ? ` · <span class="bad">${escapeHtml(job.error)}</span>` : ""}</p>
+            ${job.catalog_error ? `<p class="bad">${escapeHtml(job.catalog_error)}</p>` : ""}
+            <p class="muted">catalog ${job.catalog_n ?? 0}</p>
+            <div class="chips">${cats}${extra}</div>
+            <p class="muted">probes</p>
+            <div class="chips">${probes}</div>
+          </div>`;
+        }).join("") || `<p class="muted">no replacement jobs this poll</p>`;
+        return `<div class="run">
+          <p class="mono">${escapeHtml(run.at)} · ${run.ok === false ? '<span class="bad">failed</span>' : '<span class="ok">ok</span>'}${run.error ? ` · ${escapeHtml(run.error)}` : ""}</p>
+          <p class="muted">gone IDs seen: ${(run.targets || []).map(escapeHtml).join(", ") || "none"}</p>
+          ${skipped ? `<p class="muted">skipped</p><div class="chips">${skipped}</div>` : ""}
+          ${jobs}
+        </div>`;
+      }).join("");
+    }
+    async function tick() {
+      try {
+        const res = await fetch("/v1/retire-watch");
+        if (!res.ok) throw new Error(String(res.status));
+        render(await res.json());
+      } catch (err) {
+        $("meta").textContent = `load failed · ${err}`;
+      }
+    }
+    tick();
+    setInterval(tick, 5000);
+  </script>
+</body>
+</html>
