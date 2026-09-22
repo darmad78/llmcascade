@@ -463,7 +463,7 @@
         <span class="section-title">Available <span class="count" id="count-available"></span></span>
       </button>
       <div class="panel-body">
-      <p class="chat-hint">Dispatch pool — health-ok models not in cooldown.</p>
+      <p class="chat-hint">Count is routable now. Table lists every configured model not in cooldown (quota / missing key shown as Active).</p>
       <div style="overflow-x:auto">
         <table>
           <thead>
@@ -968,16 +968,16 @@
         const replacedOld = new Set(reps.map((r) => r.old).filter(Boolean));
         const gone = models.filter((m) => isGone(m) && !replacedOld.has(m.name));
         const available = models.filter((m) =>
-          m.routable && !isGone(m) && !replacedOld.has(m.name)
+          m.pool !== "unavailable" && !isGone(m) && !replacedOld.has(m.name)
         );
         const unavailable = models.filter((m) =>
-          !m.routable && !isGone(m) && !replacedOld.has(m.name)
+          m.pool === "unavailable" && !isGone(m) && !replacedOld.has(m.name)
         );
         renderModels("models", available, data.next_pick);
         renderModels("models-unavailable", unavailable, null, "none");
         renderModels("models-gone", gone, null, "none");
         renderReplacements(reps);
-        setCount("count-available", available.length);
+        setCount("count-available", available.filter((m) => m.routable).length);
         setCount("count-unavailable", unavailable.length);
         setCount("count-gone", gone.length);
         setCount("count-replaced", reps.length);

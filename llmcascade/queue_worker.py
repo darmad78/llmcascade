@@ -361,8 +361,14 @@ class RouterClient:
             else:
                 cd = cooling.get(m.name) if isinstance(cooling.get(m.name), dict) else None
                 row_cooling = bool(cd) and int(cd.get("remaining_s") or 0) > 0
+            waiting_health = bool(
+                isinstance(cooling.get(m.name), dict)
+                and cooling[m.name].get("waiting_health")
+            )
             unavailable = bool(
-                row_cooling or m.name in cooling or health_unavailable(hstate)
+                row_cooling
+                or waiting_health
+                or (m.name in active_names and health_unavailable(hstate))
             )
             if unavailable:
                 budget = dict(EMPTY_BUDGET)
