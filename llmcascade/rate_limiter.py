@@ -121,9 +121,16 @@ class RateLimiter:
         headers: dict[str, str] | None,
         *,
         provider: str = "",
+        fanout: bool = True,
     ) -> None:
         parsed = parse_quota_headers(headers, provider=provider)
-        await self.ingest_quota(model_name, parsed, provider=provider, source="headers")
+        await self.ingest_quota(
+            model_name,
+            parsed,
+            provider=provider,
+            source="headers",
+            fanout=fanout,
+        )
 
     def quota_source(self, model_name: str) -> str:
         return self._live_source.get(model_name) or "local"
@@ -219,7 +226,7 @@ class RateLimiter:
             return True
 
     async def try_reserve(self, model_name: str, tokens_estimate: int) -> bool:
-        """Atomically accept one request against rps/rpm/rpd/tpm, or reject."""
+        """Atomically gate on live quota + local rps only (failover-safe)."""
         model = self._models.get(model_name)
         if model is None:
             return False
@@ -240,11 +247,23 @@ class RateLimiter:
             limits = model.limits
             if await self._count(model_name, "rps", now) >= limits.rps:
                 return False
+            key = f"{model_name}:rps"
+            events = _prune(await self._store.get_events(key), now, self.WINDOWS["rps"])
+            events.append((now, 1))
+            await self._store.set_events(key, events)
+            return True
+
+    async def record_success_usage(self, model_name: str, tokens_used: int) -> None:
+        """Count rpm/rpd/tpm (and provider live remaining) only after a success."""
+        model = self._models.get(model_name)
+        if model is None:
+            return
+        async with self._lock(model_name):
+            now = time.monotonic()
             for metric, amount in (
-                ("rps", 1),
                 ("rpm", 1),
                 ("rpd", 1),
-                ("tpm", max(0, tokens_estimate)),
+                ("tpm", max(0, tokens_used)),
             ):
                 key = f"{model_name}:{metric}"
                 events = _prune(await self._store.get_events(key), now, self.WINDOWS[metric])
@@ -257,8 +276,7 @@ class RateLimiter:
                 if "rpm" in live:
                     live["rpm"] = max(0, live["rpm"] - 1)
                 if "tpm" in live:
-                    live["tpm"] = max(0, live["tpm"] - max(0, tokens_estimate))
-            return True
+                    live["tpm"] = max(0, live["tpm"] - max(0, tokens_used))
 
     async def record_usage(self, model_name: str, tokens_used: int) -> None:
         async with self._lock(model_name):

@@ -286,8 +286,12 @@ class ModelSelector:
                 capability=capability,
                 **note_detail,
             )
+            await self.rate_limiter.record_success_usage(model.name, used)
             await self.rate_limiter.ingest_headers(
-                model.name, getattr(resp, "headers", None) or None, provider=model.provider
+                model.name,
+                getattr(resp, "headers", None) or None,
+                provider=model.provider,
+                fanout=model.provider in ("groq", "openrouter"),
             )
             if self.quota_learn is not None:
                 self.quota_learn.record_success(
@@ -318,7 +322,10 @@ class ModelSelector:
                 exc=exc,
             )
             await self.rate_limiter.ingest_headers(
-                model.name, getattr(exc, "headers", None), provider=model.provider
+                model.name,
+                getattr(exc, "headers", None),
+                provider=model.provider,
+                fanout=False,
             )
             if self.quota_learn is not None:
                 kind = classify_failure(exc.status_code, str(exc))

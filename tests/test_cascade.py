@@ -40,8 +40,8 @@ def test_classify_credit():
 
 def test_classify_rate():
     assert classify_failure(429, "rate limit") == "rate"
-    assert classify_failure(503, "unavailable") == "rate"
-    assert classify_failure(None, "timeout") == "rate"
+    assert classify_failure(503, "unavailable") == "transient"
+    assert classify_failure(None, "timeout") == "transient"
 
 
 def test_classify_permanent():
@@ -53,7 +53,8 @@ def test_classify_permanent():
 
 def test_classify_auth():
     assert classify_failure(401, "unauthorized") == "auth"
-    assert classify_failure(403, "forbidden") == "auth"
+    assert classify_failure(403, "forbidden") == "transient"
+    assert classify_failure(403, "invalid api key") == "auth"
 
 
 def test_classify_transient():
@@ -193,7 +194,7 @@ async def test_cascade_advances_on_failure():
     async def send(model_id: str, prompt: str) -> LLMResponse:
         calls.append(model_id)
         if model_id == "a":
-            raise ProviderError("HTTP 503", status_code=503, retryable=True, model="a")
+            raise ProviderError("HTTP 429 rate", status_code=429, retryable=True, model="a")
         return LLMResponse(text="ok", model=model_id, tokens_used=1)
 
     resp = await mgr.run(send, "hi")

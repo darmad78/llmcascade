@@ -109,7 +109,10 @@ class QuotaLearner:
             row = _row(data, key, provider, now)
             ok = int(row.get("ok") or 0)
             if kind in ("daily", "credit"):
-                row["learned_rpd"] = max(ok, int(row.get("learned_rpd") or 0) or ok)
+                # Do not learn cap=0 from a failed attempt with no successes — that
+                # poisoned the dashboard after a single failover error.
+                if ok > 0:
+                    row["learned_rpd"] = max(int(row.get("learned_rpd") or 0), ok)
                 row["rpd_remaining"] = 0
                 row["learned_kind"] = kind
             row["last_limit"] = kind

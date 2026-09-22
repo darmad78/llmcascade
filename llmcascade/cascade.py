@@ -65,6 +65,8 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
         return "daily"
     if status_code == 429:
         return "rate"
+    if status_code is not None and status_code >= 500:
+        return "transient"
     if (
         status_code in (404, 410)
         or "not supported" in text
@@ -72,10 +74,24 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
         or "does not exist" in text
     ):
         return "permanent"
-    if status_code in (401, 403):
+    if status_code == 401:
         return "auth"
-    if status_code is None or (status_code is not None and status_code >= 500):
-        return "rate"
+    if status_code == 403:
+        if any(
+            token in text
+            for token in (
+                "unauthorized",
+                "invalid api",
+                "invalid key",
+                "api key",
+                "authentication",
+                "permission denied",
+            )
+        ):
+            return "auth"
+        return "transient"
+    if status_code is None:
+        return "transient"
     return "transient"
 
 
