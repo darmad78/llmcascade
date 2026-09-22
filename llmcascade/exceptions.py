@@ -42,7 +42,7 @@ class AllModelsExhaustedError(Exception):
         self,
         message: str,
         *,
-        http_status: int = 502,
+        http_status: int = 503,
         skipped_models: list[dict[str, str]] | None = None,
     ) -> None:
         super().__init__(message)

@@ -942,20 +942,36 @@
         .replaceAll('"', "&quot;");
     }
 
+    let lastDash = null;
+    let refreshInflight = false;
+
     async function refresh() {
+      if (refreshInflight) return;
+      refreshInflight = true;
       try {
-        const res = await fetch(`/v1/dashboard?capability=${encodeURIComponent(CAPABILITY)}`);
+        const res = await fetch(`/v1/dashboard?capability=${encodeURIComponent(CAPABILITY)}`, {
+          credentials: "same-origin",
+        });
+        if (res.status === 401) {
+          $("meta").textContent = "not signed in — open /login";
+          return;
+        }
+        if (res.status === 403) {
+          $("meta").textContent = "password change required — open /admin/change-password";
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        lastDash = data;
         const models = data.models || [];
         const reps = data.replacements || [];
         const replacedOld = new Set(reps.map((r) => r.old).filter(Boolean));
         const gone = models.filter((m) => isGone(m) && !replacedOld.has(m.name));
-        const unavailable = models.filter((m) =>
-          m.pool === "unavailable" && !isGone(m) && !replacedOld.has(m.name)
-        );
         const available = models.filter((m) =>
-          m.pool !== "unavailable" && !isGone(m) && !replacedOld.has(m.name)
+          m.routable && !isGone(m) && !replacedOld.has(m.name)
+        );
+        const unavailable = models.filter((m) =>
+          !m.routable && !isGone(m) && !replacedOld.has(m.name)
         );
         renderModels("models", available, data.next_pick);
         renderModels("models-unavailable", unavailable, null, "none");
@@ -1001,6 +1017,8 @@
           `24h ${win24} · max ${max24} · recv ${recv24} · rpd left ${rpdKnown ? `${rpdLeft}/${rpdCap || "—"}` : "—"} today · ${models.length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · ${new Date().toLocaleTimeString()}`;
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
+      } finally {
+        refreshInflight = false;
       }
     }
 
@@ -1102,7 +1120,7 @@
       const turns = history.map((m) =>
         `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`
       ).join("\n");
-      return `${PROJECT_CONTEXT}\n\nConversation so far:\n${turns}\nAssistant:`;
+      return `${PROJECT_CONTEXT}\n\n${dashDigest(lastDash)}\n\nConversation so far:\n${turns}\nAssistant:`;
     }
 
     function httpDetail(data, status) {
@@ -1116,7 +1134,24 @@
         if (msg) return String(msg) + skipped;
         try { return JSON.stringify(d); } catch { /* ignore */ }
       }
+      if (status === 401) return "not signed in — open /login";
+      if (status === 403) return "password change required — open /admin/change-password";
+      if (status === 502 || status === 503) {
+        return "no free-tier model succeeded (proxy HTTP " + status + " without JSON)";
+      }
       return `HTTP ${status}`;
+    }
+
+    function dashDigest(data) {
+      if (!data) return "";
+      const models = data.models || [];
+      const names = models.filter((m) => m.routable).map((m) => m.name);
+      const next = data.next_pick && data.next_pick.name;
+      const errs = (data.errors || []).slice(0, 4).map((e) => e.message).filter(Boolean);
+      return [
+        `Live snapshot: routable ${names.length ? names.join(", ") : "none"} · next ${next || "—"}`,
+        errs.length ? `Recent errors: ${errs.join(" | ")}` : "",
+      ].filter(Boolean).join("\n");
     }
 
     async function sendChat(text) {
@@ -1144,9 +1179,20 @@
           }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
+        if (res.status === 401) {
+          chatHistory.push({
+            role: "assistant",
+            content: "Not signed in. Open /login and retry.",
+            error: true,
+          });
+        } else if (!res.ok) {
           const detail = httpDetail(data, res.status);
-          chatHistory.push({ role: "assistant", content: String(detail), error: true });
+          const snap = dashDigest(lastDash);
+          chatHistory.push({
+            role: "assistant",
+            content: snap ? `${detail}\n\n${snap}` : String(detail),
+            error: true,
+          });
         } else {
           chatHistory.push({
             role: "assistant",

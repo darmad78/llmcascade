@@ -221,8 +221,8 @@
 
       <div class="row">
         <div class="meta">
-          <span class="pill http">502</span>
-          <span class="code">safe error detail (e.g. provider HTTP 429, AllModelsExhausted…)</span>
+          <span class="pill http">503</span>
+          <span class="code">no free-tier model succeeded for capability=…</span>
         </div>
         <p class="title">Completion failed after routing</p>
         <p class="what">Queue/submit raised — typically all eligible models failed, queue full, or a provider error. Response detail is sanitized (no raw provider bodies).</p>
@@ -253,7 +253,7 @@
       </div>
       <div class="row">
         <div class="meta">
-          <span class="pill http">502</span>
+          <span class="pill http">503</span>
           <span class="code">no free-tier model succeeded for capability='embed'</span>
         </div>
         <p class="title">All embed models failed</p>
@@ -370,7 +370,7 @@
 
     <section id="runtime">
       <h2>Runtime routing</h2>
-      <p class="lead">Seen in events, 502 details, or library exceptions.</p>
+      <p class="lead">Seen in events, 503 details, or library exceptions.</p>
 
       <div class="row">
         <div class="meta">

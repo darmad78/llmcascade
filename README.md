@@ -103,7 +103,7 @@ emb.raise_for_status()
 print(len(emb.json()["embedding"]), emb.json()["dimensions"])
 ```
 
-`502` means every eligible model failed. Embeddings **must** set `model` (same ID for a corpus). Chat may fall through providers; embeddings do not.
+`503` means every eligible model failed. Embeddings **must** set `model` (same ID for a corpus). Chat may fall through providers; embeddings do not.
 
 MCP clients (Cursor, Claude, etc.) POST JSON-RPC to `/mcp`:
 
@@ -204,7 +204,7 @@ asyncio.run(main())
 | Symptom | Fix |
 |---------|-----|
 | No models / empty status | Set at least one provider key in `.env` or `/admin/providers`, then restart. |
-| `502` on complete/embed | All eligible models failed or were over budget (including TPM vs prompt size). Check `/v1/errors` (after login) and `/help`. |
+| `503` on complete/embed | All eligible models failed or were over budget (including TPM vs prompt size). Check `/v1/errors` (after login) and `/help`. |
 | `413` from nginx | Request body over the proxy cap (default **1 MB** unless `client_max_body_size` is set). |
 | `401` from curl/apps | Production profile: send `Authorization: Bearer …`. |
 | Dashboard chat / Test embed `401` | Hard-refresh after login. Session + CSRF is enough; do not paste an API key in the UI. |

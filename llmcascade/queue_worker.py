@@ -12,7 +12,7 @@ from llmcascade.adapters.gemini_adapter import GeminiAdapter
 from llmcascade.cascade import GeminiCascadeManager, ModelCooldownTracker, cascade_manager_from_registry
 from llmcascade.event_log import events
 from llmcascade.exceptions import QueueFullError
-from llmcascade.health import EMPTY_BUDGET, health_cache, probe_model
+from llmcascade.health import EMPTY_BUDGET, health_cache, health_unavailable, probe_model
 from llmcascade.metrics import metrics
 from llmcascade.quota_learn import QuotaLearner
 from llmcascade.rate_limiter import RateLimiter
@@ -361,7 +361,9 @@ class RouterClient:
             else:
                 cd = cooling.get(m.name) if isinstance(cooling.get(m.name), dict) else None
                 row_cooling = bool(cd) and int(cd.get("remaining_s") or 0) > 0
-            unavailable = bool(row_cooling or m.name in cooling)
+            unavailable = bool(
+                row_cooling or m.name in cooling or health_unavailable(hstate)
+            )
             if unavailable:
                 budget = dict(EMPTY_BUDGET)
             free_left = None

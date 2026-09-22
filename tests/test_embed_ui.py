@@ -200,6 +200,7 @@ def test_embed_pages_after_login(client: TestClient):
     assert "llmcascade.dashboardSections" in llm.text
     assert 'id="peak-recv"' in llm.text
     assert "const CAPABILITY = \"chat\"" in llm.text
+    assert "not signed in — open /login" in llm.text
     assert 'renderLog($("errors"), lastErrors, "no errors")' in llm.text
     assert 'renderLog($("errors"), filterByType(lastErrors)' not in llm.text
 

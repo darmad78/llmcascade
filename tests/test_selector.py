@@ -358,6 +358,7 @@ async def test_no_free_cascade_does_not_use_other_registry_models():
             include_free_cascade=False,
         )
     assert calls == ["a"]
+    assert exc.value.http_status == 503
     assert exc.value.skipped_models == [{"model": "a", "reason": "error"}]
 
 

@@ -430,10 +430,10 @@ class ModelSelector:
                 status = 429
             else:
                 msg = f"embedding model {pin!r} failed or is unavailable"
-                status = 502
+                status = 503
         else:
             msg = f"no free-tier model succeeded for capability={capability!r}"
-            status = 502
+            status = 503
         if last_err is not None:
             msg = f"{msg}; last error: {safe_error_message(last_err)}"
         events.record(
