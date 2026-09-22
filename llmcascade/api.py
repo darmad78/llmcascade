@@ -674,7 +674,18 @@ async def apply_model_test(name: str) -> dict[str, Any]:
         model = parent.model_copy(update={"name": name, "cascade": []})
     client = _require_client()
     probe = await probe_model(client._client, model)
-    return {"ok": probe.state == "ok", "test": probe.to_dict(), "name": name}
+    pool_action = client.cooldowns.apply_health(
+        name,
+        state=probe.state,
+        http_status=probe.http_status,
+        message=probe.message,
+    )
+    return {
+        "ok": probe.state == "ok",
+        "test": probe.to_dict(),
+        "name": name,
+        "pool_action": pool_action,
+    }
 
 
 @app.post("/v1/complete", response_model=LLMResponse)

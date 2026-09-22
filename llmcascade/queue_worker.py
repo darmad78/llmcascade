@@ -19,6 +19,7 @@ from llmcascade.rate_limiter import RateLimiter
 from llmcascade.registry import ModelConfig, key_source, list_all_models, load_registry
 from llmcascade.selector import ModelSelector, Strategy, strategy_from_env
 from llmcascade.stats_store import NullStatsStore, StatsStore
+from llmcascade.ui import model_dispatch_hold
 
 try:
     from llmcascade.provider_store import get_free_paid, key_is_set
@@ -434,6 +435,15 @@ class RouterClient:
                 "enabled": getattr(m, "enabled", True),
                 "custom": getattr(m, "custom", False),
             }
+            cd_row = entry.get("cooldown") if isinstance(entry.get("cooldown"), dict) else None
+            is_gone = bool(cd_row and str(cd_row.get("kind") or "") == "permanent")
+            entry["dispatch_hold"] = model_dispatch_hold(
+                pool=pool,
+                cooldown=cd_row,
+                health=entry.get("health"),
+                key_set=bool(entry["key_set"]),
+                gone=is_gone,
+            )
             entry["learned"] = learned.get(m.name)
             if m.cascade:
                 entry["learned_members"] = {

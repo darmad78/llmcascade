@@ -191,6 +191,27 @@
       background: color-mix(in srgb, var(--ok) 10%, transparent);
       box-shadow: inset 3px 0 0 var(--ok);
     }
+    .hold-cell { min-width: 11rem; max-width: 16rem; font-size: 0.78rem; }
+    .hold-reason { color: var(--text); line-height: 1.35; margin-bottom: 0.35rem; }
+    .hold-wait { color: var(--muted); font-family: var(--mono); font-size: 0.75rem; }
+    .hold-btn {
+      display: inline-block;
+      margin-top: 0.15rem;
+      padding: 0.22rem 0.55rem;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, #3a6ea5 18%, var(--panel));
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 0.74rem;
+      font-weight: 550;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .hold-btn:hover { border-color: var(--muted); }
+    .hold-btn:disabled { opacity: 0.55; cursor: wait; }
+    .hold-btn.is-ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+    .hold-btn.is-bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
     .next-badge {
       display: inline-block;
       margin-left: 0.4rem;
@@ -506,6 +527,7 @@
               <th>Budget left</th>
               <th>Reqs</th>
               <th>Fails</th>
+              <th>Hold / action</th>
             </tr>
           </thead>
           <tbody id="models-unavailable"></tbody>
@@ -534,6 +556,7 @@
               <th>Budget left</th>
               <th>Reqs</th>
               <th>Fails</th>
+              <th>Hold / action</th>
             </tr>
           </thead>
           <tbody id="models-gone"></tbody>
@@ -746,11 +769,82 @@
         <div class="free-note">${escapeHtml(m.free_tier_note || "")}</div>`;
     }
 
-    function renderModels(tbodyId, models, nextPick, emptyMsg) {
+    function providersHref() {
+      return CAPABILITY === "embed" ? "/embed/providers" : "/admin/providers";
+    }
+
+    function fmtHoldCell(m) {
+      const hold = m.dispatch_hold || {};
+      if (!hold.reason) return `<span class="budget">—</span>`;
+      const reason = escapeHtml(hold.reason);
+      const act = hold.action || "none";
+      let actionHtml = "";
+      if (act === "wait" && hold.wait_s != null) {
+        actionHtml = `<span class="hold-wait">Wait ${escapeHtml(fmtDuration(hold.wait_s))}</span>`;
+      } else if (act === "providers") {
+        actionHtml = `<a class="hold-btn" href="${providersHref()}">${escapeHtml(hold.action_label || "Update API key")}</a>`;
+      } else if (act === "probe") {
+        actionHtml = `<button type="button" class="hold-btn" data-probe="${escapeHtml(m.name)}">${escapeHtml(hold.action_label || "Run health check")}</button>`;
+      } else if (act === "retire_watch") {
+        actionHtml = `<a class="hold-btn" href="/retire-watch">${escapeHtml(hold.action_label || "Open retire-watch")}</a>`;
+      }
+      return `<div class="hold-reason">${reason}</div>${actionHtml}`;
+    }
+
+    async function runModelProbe(name, btn) {
+      if (!name || !btn) return;
+      btn.disabled = true;
+      btn.classList.remove("is-ok", "is-bad");
+      const prev = btn.textContent;
+      btn.textContent = "Checking…";
+      try {
+        const res = await fetch("/admin/models/test", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken(),
+          },
+          body: JSON.stringify({ name, csrf_token: csrfToken() }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const t = data.test || {};
+        const pool = data.pool_action ? ` · pool ${data.pool_action}` : "";
+        btn.title = `${t.state || "?"}: ${t.message || ""}${pool}`;
+        btn.classList.add(data.ok ? "is-ok" : "is-bad");
+        btn.textContent = data.ok ? "OK — refreshing" : "Failed — retry";
+        await refresh();
+      } catch (err) {
+        btn.title = err.message || String(err);
+        btn.classList.add("is-bad");
+        btn.textContent = "Error — retry";
+      } finally {
+        btn.disabled = false;
+        if (btn.textContent === "Checking…") btn.textContent = prev;
+      }
+    }
+
+    function bindHoldActions() {
+      ["models-unavailable", "models-gone"].forEach((id) => {
+        const tb = $(id);
+        if (!tb || tb.dataset.holdBound === "1") return;
+        tb.dataset.holdBound = "1";
+        tb.addEventListener("click", (e) => {
+          const btn = e.target.closest("button[data-probe]");
+          if (!btn) return;
+          e.preventDefault();
+          runModelProbe(btn.getAttribute("data-probe"), btn);
+        });
+      });
+    }
+
+    function renderModels(tbodyId, models, nextPick, emptyMsg, opts) {
+      const o = opts || {};
       const tb = $(tbodyId);
       if (!tb) return;
+      const colSpan = o.holdColumn ? 11 : 10;
       if (!models.length) {
-        tb.innerHTML = `<tr><td colspan="10" class="budget">${emptyMsg || "none configured"}</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="${colSpan}" class="budget">${emptyMsg || "none configured"}</td></tr>`;
         return;
       }
       tb.innerHTML = models.map((m) => {
@@ -777,6 +871,7 @@
           <td class="budget">${escapeHtml(fmtBudget(m.budget))}</td>
           <td>${m.requests_total}</td>
           <td>${m.failures_total}</td>
+          ${o.holdColumn ? `<td class="hold-cell">${fmtHoldCell(m)}</td>` : ""}
         </tr>`;
       }).join("");
     }
@@ -974,8 +1069,8 @@
           m.pool === "unavailable" && !isGone(m) && !replacedOld.has(m.name)
         );
         renderModels("models", available, data.next_pick);
-        renderModels("models-unavailable", unavailable, null, "none");
-        renderModels("models-gone", gone, null, "none");
+        renderModels("models-unavailable", unavailable, null, "none", { holdColumn: true });
+        renderModels("models-gone", gone, null, "none", { holdColumn: true });
         renderReplacements(reps);
         setCount("count-available", available.filter((m) => m.routable).length);
         setCount("count-unavailable", unavailable.length);
@@ -1069,6 +1164,7 @@
 
     renderEventFilters();
     bindSections();
+    bindHoldActions();
     refresh();
     setInterval(refresh, 2000);
 

@@ -35,6 +35,58 @@ def test_event_log_records_type():
     assert log.events()[0]["type"] == "request_fail"
 
 
+def test_model_dispatch_hold_credit_wait():
+    from llmcascade.ui import model_dispatch_hold
+
+    hold = model_dispatch_hold(
+        pool="unavailable",
+        cooldown={"kind": "credit", "remaining_s": 3600, "waiting_health": False},
+        health={"state": "warn"},
+        key_set=True,
+    )
+    assert hold["action"] == "wait"
+    assert hold["wait_s"] == 3600
+    assert "credits" in hold["reason"].lower()
+
+
+def test_model_dispatch_hold_waiting_health_probe():
+    from llmcascade.ui import model_dispatch_hold
+
+    hold = model_dispatch_hold(
+        pool="unavailable",
+        cooldown={"kind": "rate", "remaining_s": 0, "waiting_health": True},
+        health={"state": "ok"},
+        key_set=True,
+    )
+    assert hold["action"] == "probe"
+    assert "health check" in hold["action_label"].lower()
+
+
+def test_model_dispatch_hold_auth_providers():
+    from llmcascade.ui import model_dispatch_hold
+
+    hold = model_dispatch_hold(
+        pool="unavailable",
+        cooldown=None,
+        health={"state": "auth_error", "message": "HTTP 401"},
+        key_set=True,
+    )
+    assert hold["action"] == "providers"
+
+
+def test_model_dispatch_hold_gone_retire():
+    from llmcascade.ui import model_dispatch_hold
+
+    hold = model_dispatch_hold(
+        pool="unavailable",
+        cooldown={"kind": "permanent", "remaining_s": 999},
+        health={"state": "down"},
+        key_set=True,
+        gone=True,
+    )
+    assert hold["action"] == "retire_watch"
+
+
 def test_health_unavailable_zeros():
     from llmcascade.health import EMPTY_BUDGET, health_unavailable
 

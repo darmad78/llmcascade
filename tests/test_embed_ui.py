@@ -194,6 +194,8 @@ def test_embed_pages_after_login(client: TestClient):
     assert "Gone" in llm.text
     assert "Replaced" in llm.text
     assert 'id="models-unavailable"' in llm.text
+    assert "Hold / action" in llm.text
+    assert "data-probe" in llm.text
     assert 'id="models-gone"' in llm.text
     assert 'id="models-replaced"' in llm.text
     assert 'data-section="available"' in llm.text

@@ -54,6 +54,84 @@ def nav_html(area: str, active: str) -> str:
     </div>"""
 
 
+def model_dispatch_hold(
+    *,
+    pool: str,
+    cooldown: dict[str, Any] | None,
+    health: dict[str, Any] | None,
+    key_set: bool,
+    gone: bool = False,
+) -> dict[str, Any]:
+    """Human-readable hold reason and suggested operator action for dashboard rows."""
+    h = health if isinstance(health, dict) else {}
+    hstate = str(h.get("state") or "unknown")
+    hmsg = str(h.get("message") or "").strip()
+    cd = cooldown if isinstance(cooldown, dict) else {}
+    remaining = max(0, int(cd.get("remaining_s") or 0))
+    kind = str(cd.get("kind") or "cooldown")
+
+    if gone or kind == "permanent":
+        return {
+            "reason": "Model ID retired (404/410 or permanent failure).",
+            "action": "retire_watch",
+            "action_label": "Open retire-watch",
+        }
+
+    if pool != "unavailable":
+        return {"reason": "", "action": "none", "action_label": ""}
+
+    if cd.get("waiting_health"):
+        return {
+            "reason": "Cooldown ended; waiting for a passing health check.",
+            "action": "probe",
+            "action_label": "Run health check",
+        }
+
+    if remaining > 0:
+        reason_by_kind = {
+            "credit": "Provider credits or daily allowance exhausted.",
+            "rate": "Rate limit hit (RPM/RPS).",
+            "daily": "Daily request quota exhausted.",
+            "auth": "Authentication failed; API key may be invalid.",
+        }
+        reason = reason_by_kind.get(kind, f"Cooldown active ({kind}).")
+        if kind == "auth" or not key_set:
+            return {
+                "reason": reason,
+                "action": "providers",
+                "action_label": "Update API key",
+                "wait_s": remaining,
+            }
+        return {
+            "reason": reason,
+            "action": "wait",
+            "action_label": "Wait",
+            "wait_s": remaining,
+        }
+
+    if hstate == "auth_error":
+        detail = hmsg or "API key missing or rejected"
+        return {
+            "reason": f"Health auth error: {detail}",
+            "action": "providers",
+            "action_label": "Update API key",
+        }
+
+    if hstate == "down":
+        detail = hmsg or "Provider unreachable"
+        return {
+            "reason": f"Health down: {detail}",
+            "action": "probe",
+            "action_label": "Test connection",
+        }
+
+    return {
+        "reason": "Held out of dispatch until cooldown clears or health passes.",
+        "action": "probe",
+        "action_label": "Run health check",
+    }
+
+
 def filter_dashboard(data: dict[str, Any], capability: str) -> dict[str, Any]:
     models = [
         m
