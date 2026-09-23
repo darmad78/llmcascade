@@ -249,6 +249,8 @@ class ModelSelector:
         else:
             include_free = True
 
+        preferred_names = set(preferred)
+
         async def succeed(model: ModelConfig, resp: LLMResponse) -> LLMResponse:
             used = resp.tokens_used or tokens_est
             metrics.record_success(model.name, capability)
@@ -321,11 +323,13 @@ class ModelSelector:
                 notes=note,
                 exc=exc,
             )
+            failover_probe = include_free and model.name not in preferred_names
             if self.quota_learn is not None:
                 kind = classify_failure(exc.status_code, str(exc))
-                self.quota_learn.record_limit(
-                    (exc.model or model.name), model.provider, kind
-                )
+                if not (failover_probe and kind in ("credit", "daily")):
+                    self.quota_learn.record_limit(
+                        (exc.model or model.name), model.provider, kind
+                    )
             if self.cooldowns is not None and not (
                 model.provider == "gemini" and bool(model.cascade)
             ):
@@ -334,6 +338,7 @@ class ModelSelector:
                     status_code=exc.status_code,
                     body=str(exc),
                     headers=getattr(exc, "headers", None),
+                    failover_probe=failover_probe,
                 )
                 if kind is not None:
                     events.record(

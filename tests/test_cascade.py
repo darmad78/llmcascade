@@ -126,6 +126,26 @@ def test_effective_cascade_hides_and_reorders(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_apply_from_error_failover_probe_short_rate(tmp_path):
+    from llmcascade.cascade import ModelCooldownTracker
+    from llmcascade.model_pool import ModelPool
+
+    cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
+    kind = await cool.apply_from_error(
+        "together/foo", status_code=402, body="Payment Required", failover_probe=True
+    )
+    assert kind == "rate"
+    assert await cool.is_cooling("together/foo")
+    row = cool.pool.cooldown_status()["together/foo"]
+    assert row["kind"] == "rate"
+
+    kind2 = await cool.apply_from_error(
+        "deepseek/bar", status_code=402, body="Insufficient Balance", failover_probe=False
+    )
+    assert kind2 == "daily"
+
+
+@pytest.mark.asyncio
 async def test_rpm_cools_only_failed_model():
     mgr = GeminiCascadeManager(["a", "b", "c"])
     await mgr.apply_cooldown("a", "rate", body="rate limit")

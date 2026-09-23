@@ -443,13 +443,19 @@ class ModelCooldownTracker:
         body: str = "",
         headers: dict[str, str] | None = None,
         now: datetime | None = None,
+        failover_probe: bool = False,
     ) -> FailureKind | None:
-        kind = classify_failure(status_code, body)
-        until = cooldown_until(kind, now=now, headers=headers)
+        classified = classify_failure(status_code, body)
+        pool_kind: FailureKind = classified
+        if classified == "credit":
+            pool_kind = "daily"
+        if failover_probe and classified in ("credit", "daily", "auth"):
+            pool_kind = "rate"
+        until = cooldown_until(pool_kind, now=now, headers=headers)
         if until is None:
             return None
-        self.pool.mark_unavailable(model_name, kind, until)
-        return kind
+        self.pool.mark_unavailable(model_name, pool_kind, until)
+        return pool_kind
 
     async def status(self) -> dict[str, Any]:
         return self.pool.cooldown_status()
