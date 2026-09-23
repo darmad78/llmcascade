@@ -17,7 +17,7 @@ def test_classify_recorded_known_kinds():
     assert classify_recorded_failure(429, "PerDay quota exceeded") == "daily"
     assert classify_recorded_failure(402, "Insufficient Balance") == "credit"
     assert classify_recorded_failure(401, "unauthorized") == "auth"
-    assert classify_recorded_failure(403, "forbidden") == "auth"
+    assert classify_recorded_failure(403, "forbidden") == "rate"
     assert classify_recorded_failure(None, "timeout") == "timeout"
     assert classify_recorded_failure(408, "request timeout") == "timeout"
     assert classify_recorded_failure(404, "model not found") == "permanent"

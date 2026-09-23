@@ -43,12 +43,12 @@ SendFn = Callable[[str, str], Awaitable[LLMResponse]]  # (model_id, prompt) -> r
 
 def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
     text = (body or "").lower()
-    if (
-        status_code == 402
-        or "insufficient balance" in text
-        or "credit limit" in text
-        or "credit_limit" in text
+    if status_code == 402:
+        return "credit"
+    if status_code == 429 and (
+        "insufficient balance" in text
         or "out of credits" in text
+        or "credit_limit" in text
     ):
         return "credit"
     if (
@@ -89,7 +89,7 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
             )
         ):
             return "auth"
-        return "transient"
+        return "rate"
     if status_code is None:
         return "transient"
     return "transient"
@@ -302,8 +302,8 @@ class GeminiCascadeManager:
         until = cooldown_until(kind, now=now, headers=headers)
         if until is None:
             return
-        # Billing/credit is project-wide. Google RPD is per model ID — do not fan out daily.
-        targets = list(self.models) if kind == "credit" else [model_id]
+        # Per cascade member — avoid parking the whole family on one member's failure.
+        targets = [model_id]
         async with self._lock:
             for mid in targets:
                 prev = self._cooldowns.get(mid)

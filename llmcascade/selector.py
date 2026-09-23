@@ -321,12 +321,6 @@ class ModelSelector:
                 notes=note,
                 exc=exc,
             )
-            await self.rate_limiter.ingest_headers(
-                model.name,
-                getattr(exc, "headers", None),
-                provider=model.provider,
-                fanout=False,
-            )
             if self.quota_learn is not None:
                 kind = classify_failure(exc.status_code, str(exc))
                 self.quota_learn.record_limit(

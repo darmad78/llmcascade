@@ -96,6 +96,9 @@ class RateLimiter:
         if not parsed:
             return
         remaining = {k: v for k, v in parsed.items() if not k.endswith("_limit")}
+        # Failover 429/403 responses often report 0 remaining; don't poison live budgets.
+        if remaining and all(int(v) <= 0 for v in remaining.values()):
+            return
         caps = {}
         for key, val in parsed.items():
             if key.endswith("_limit"):

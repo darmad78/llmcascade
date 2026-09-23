@@ -35,7 +35,8 @@ def test_classify_daily():
 def test_classify_credit():
     assert classify_failure(402, "Insufficient Balance") == "credit"
     assert classify_failure(402, '{"error":{"type":"credit_limit"}}') == "credit"
-    assert classify_failure(400, "Credit limit exceeded, please add credits") == "credit"
+    assert classify_failure(429, "out of credits") == "credit"
+    assert classify_failure(400, "Credit limit exceeded, please add credits") == "transient"
 
 
 def test_classify_rate():
@@ -53,7 +54,7 @@ def test_classify_permanent():
 
 def test_classify_auth():
     assert classify_failure(401, "unauthorized") == "auth"
-    assert classify_failure(403, "forbidden") == "transient"
+    assert classify_failure(403, "forbidden") == "rate"
     assert classify_failure(403, "invalid api key") == "auth"
 
 
