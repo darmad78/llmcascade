@@ -41,8 +41,8 @@ async def test_failed_failover_does_not_burn_rpd_budget():
     assert rem_b["rpd"] == 99
 
 
-def test_classify_forbidden_403_is_rate():
-    assert classify_failure(403, "forbidden") == "rate"
+def test_classify_forbidden_403_is_auth():
+    assert classify_failure(403, "forbidden") == "auth"
 
 
 @pytest.mark.asyncio

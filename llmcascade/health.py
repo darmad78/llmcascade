@@ -144,5 +144,8 @@ class HealthCache:
             out[model.name] = status.to_dict()
         return out
 
+    def snapshot(self) -> dict[str, dict[str, Any]]:
+        return {name: st.to_dict() for name, st in self._cache.items()}
+
 
 health_cache = HealthCache()
