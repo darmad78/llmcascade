@@ -79,6 +79,7 @@ INFERENCE_TOOLS: dict[str, JsonDict] = {
                 "model": {"type": "string"},
                 "params": {"type": "object"},
                 "notes": {"type": "string"},
+                "output_dimensionality": {"type": "integer"},
             },
             ["prompt", "model"],
         ),
