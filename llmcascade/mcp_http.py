@@ -246,7 +246,11 @@ async def dispatch_tool(name: str, arguments: JsonDict) -> Any:
         body = api.EmbedRequest.model_validate(args)
         return (
             await api._submit_inference(
-                body.prompt, "embed", body.notes, body.params, model=body.model
+                body.prompt,
+                "embed",
+                body.notes,
+                api._embed_request_params(body),
+                model=body.model,
             )
         ).model_dump()
     if name == "status":

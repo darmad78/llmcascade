@@ -128,6 +128,31 @@ def test_embed_open_by_default(client: TestClient, monkeypatch: pytest.MonkeyPat
     assert body["model"] == "mistral-embed"
 
 
+def test_embed_output_dimensionality_merged_into_params(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    seen: dict[str, object] = {}
+
+    async def fake_submit(prompt, capability="chat", notes=None, model=None, **params):
+        from llmcascade.adapters.base import LLMResponse
+
+        seen["params"] = dict(params)
+        return LLMResponse(model=model or "x", embedding=[0.2], dimensions=1, tokens_used=1, latency_ms=1.0)
+
+    import llmcascade.api as api_mod
+
+    monkeypatch.setattr(api_mod._client, "submit", fake_submit)
+    bad = client.post(
+        "/v1/embed",
+        json={"prompt": "doc", "model": "gemini-embedding-001", "output_dimensionality": 64},
+    )
+    assert bad.status_code == 422
+    ok = client.post(
+        "/v1/embed",
+        json={"prompt": "doc", "model": "gemini-embedding-001", "output_dimensionality": 768},
+    )
+    assert ok.status_code == 200
+    assert seen["params"]["output_dimensionality"] == 768
+
+
 def test_bcrypt_entry_in_api_keys_env(monkeypatch: pytest.MonkeyPatch):
     hashed = bcrypt.hashpw(b"mixed-key", bcrypt.gensalt()).decode("ascii")
     monkeypatch.setenv("LLMCASCADE_API_KEYS", f"plain-one,{hashed}")
