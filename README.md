@@ -103,6 +103,8 @@ emb.raise_for_status()
 print(len(emb.json()["embedding"]), emb.json()["dimensions"])
 ```
 
+For **Google `gemini-embedding-001`**, you can request a smaller vector (128–3072) via `params.outputDimensionality` or top-level `output_dimensionality` on `/v1/embed` and the MCP `embed` tool (`params.outputDimensionality` wins if both are set).
+
 `503` means every eligible model failed. Embeddings **must** set `model` (same ID for a corpus). Chat may fall through providers; embeddings do not.
 
 MCP clients (Cursor, Claude, etc.) POST JSON-RPC to `/mcp`:
@@ -129,7 +131,7 @@ Use an inference key for `complete`/`embed`. Use a **different** admin key for p
 | Method | Path | Notes |
 |--------|------|--------|
 | `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"?, "model"?, "failover_models"?, "include_free_cascade"? }` → `text`, `model`, … |
-| `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"? }` → `embedding`, `dimensions` |
+| `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"?, "output_dimensionality"? }` → `embedding`, `dimensions` |
 | `GET` | `/v1/status` | Budgets + Gemini snapshot |
 | `POST` | `/v1/admin/reload-registry` | Hot-reload YAML (open when auth off; else admin key / cookie+CSRF) |
 | `GET` | `/v1/health` | Provider reachability |
