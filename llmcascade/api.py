@@ -116,6 +116,13 @@ class EmbedRequest(BaseModel):
     model: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
+    output_dimensionality: int | None = None
+
+    @model_validator(mode="after")
+    def _merge_output_dimensionality(self) -> EmbedRequest:
+        if self.output_dimensionality is not None and "outputDimensionality" not in self.params:
+            self.params = {**self.params, "outputDimensionality": self.output_dimensionality}
+        return self
 
 
 class ProviderSaveBody(BaseModel):
