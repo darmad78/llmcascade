@@ -116,13 +116,14 @@ class EmbedRequest(BaseModel):
     model: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
-    output_dimensionality: int | None = None
+    output_dimensionality: int | None = Field(default=None, ge=128, le=3072)
 
-    @model_validator(mode="after")
-    def _merge_output_dimensionality(self) -> EmbedRequest:
-        if self.output_dimensionality is not None and "outputDimensionality" not in self.params:
-            self.params = {**self.params, "outputDimensionality": self.output_dimensionality}
-        return self
+
+def _embed_request_params(body: EmbedRequest) -> dict[str, Any]:
+    params = dict(body.params)
+    if body.output_dimensionality is not None:
+        params["output_dimensionality"] = body.output_dimensionality
+    return params
 
 
 class ProviderSaveBody(BaseModel):
@@ -713,7 +714,7 @@ async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
 async def embed(request: Request, body: EmbedRequest) -> LLMResponse:
     await _authorize_inference(request)
     return await _submit_inference(
-        body.prompt, "embed", body.notes, body.params, model=body.model
+        body.prompt, "embed", body.notes, _embed_request_params(body), model=body.model
     )
 
 

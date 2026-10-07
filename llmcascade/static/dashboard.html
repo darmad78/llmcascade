@@ -416,6 +416,37 @@
       font-size: 0.85rem;
     }
     .embed-fields textarea { min-height: 4.5rem; resize: vertical; }
+    .embed-fields input[type="number"] {
+      width: 100%;
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #0b1015;
+      color: var(--text);
+      font: inherit;
+      font-size: 0.85rem;
+    }
+    .embed-dim-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.25rem;
+    }
+    .embed-dim-presets button {
+      appearance: none;
+      padding: 0.25rem 0.5rem;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel) 90%, #3a6ea5 10%);
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.72rem;
+      cursor: pointer;
+    }
+    .embed-dim-presets button:hover {
+      border-color: color-mix(in srgb, #3a6ea5 45%, var(--line));
+      color: var(--text);
+    }
     #embed-result {
       margin: 0 1rem 0.85rem;
       padding: 0.65rem 0.7rem;
@@ -653,6 +684,18 @@
         <select id="embed-model"></select>
       </label>
       <div id="embed-budget" class="chat-hint">rpm / rps left updates with the table.</div>
+      <label>Output size (test)
+        <input type="number" id="embed-output-dimensionality" min="128" max="3072" step="1" placeholder="Default (model native)">
+        <div class="embed-dim-presets" aria-label="Output size presets">
+          <button type="button" data-embed-dim="128">128</button>
+          <button type="button" data-embed-dim="768">768</button>
+          <button type="button" data-embed-dim="3072">3072</button>
+          <button type="button" data-embed-dim="">Clear</button>
+        </div>
+      </label>
+      <p id="embed-dim-hint" class="chat-hint" hidden>
+        Optional <code>output_dimensionality</code> for <strong>gemini-embedding-001</strong> (128–3072). Other models ignore it unless their API supports the same field.
+      </p>
       <label>Prompt
         <textarea id="embed-prompt" rows="4">hello world</textarea>
       </label>
@@ -1160,7 +1203,29 @@
       if (blocked) {
         line.textContent += " — wait for the window (Gemini embed is 1 rps / 10 rpm).";
       }
+      const hint = $("embed-dim-hint");
+      if (hint) {
+        const gemini = sel.value === "gemini-embedding-001";
+        hint.hidden = !gemini;
+      }
     }
+
+    function readEmbedOutputDimensionality() {
+      const raw = ($("embed-output-dimensionality").value || "").trim();
+      if (!raw) return null;
+      const dim = Number(raw);
+      if (!Number.isInteger(dim) || dim < 128 || dim > 3072) {
+        throw new Error("Output size must be an integer from 128 to 3072 (or leave blank for default).");
+      }
+      return dim;
+    }
+
+    document.querySelectorAll("[data-embed-dim]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        $("embed-output-dimensionality").value = btn.getAttribute("data-embed-dim") || "";
+        $("embed-output-dimensionality").focus();
+      });
+    });
 
     renderEventFilters();
     bindSections();
@@ -1352,7 +1417,19 @@
       embedBusy = true;
       out.className = "";
       out.textContent = "Running…";
+      let outputDimensionality = null;
       try {
+        outputDimensionality = readEmbedOutputDimensionality();
+      } catch (err) {
+        out.className = "is-err";
+        out.textContent = err.message || String(err);
+        return;
+      }
+      try {
+        const payload = { prompt, model, notes: "dashboard-embed-test" };
+        if (outputDimensionality != null) {
+          payload.output_dimensionality = outputDimensionality;
+        }
         const res = await fetch("/v1/embed", {
           method: "POST",
           credentials: "same-origin",
@@ -1360,7 +1437,7 @@
             "Content-Type": "application/json",
             "X-CSRF-Token": csrfToken(),
           },
-          body: JSON.stringify({ prompt, model, notes: "dashboard-embed-test" }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {

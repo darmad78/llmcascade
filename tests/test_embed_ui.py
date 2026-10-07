@@ -166,6 +166,10 @@ def test_embed_pages_after_login(client: TestClient):
     assert "const CAPABILITY = \"embed\"" in dash.text
     assert "Test embed" in dash.text
     assert "embed-budget" in dash.text
+    assert "embed-output-dimensionality" in dash.text
+    assert "output_dimensionality" in dash.text
+    assert "gemini-embedding-001" in dash.text
+    assert "payload.output_dimensionality" in dash.text
     assert "/v1/embed" in dash.text
     assert "Embedding models" in dash.text
 
