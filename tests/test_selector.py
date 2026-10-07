@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from llmcascade.adapters.base import LLMResponse
@@ -418,3 +420,60 @@ async def test_last_good_is_per_notes():
     )
     assert (await sel.pick("chat", notes="app1")).name == "b"
     assert (await sel.pick("chat", notes="app2")).name == "a"
+
+
+@pytest.mark.asyncio
+async def test_health_down_skips_without_http():
+    models = [_m("a"), _m("b")]
+    lim = RateLimiter(models)
+    sel = ModelSelector(
+        models,
+        lim,
+        health_states=lambda: {"a": {"state": "down"}},
+    )
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback("hi", "chat", executor)
+    assert resp.model == "b"
+    assert calls == ["b"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_waits_for_rate_cooldown(monkeypatch, tmp_path):
+    from datetime import timedelta
+
+    from llmcascade.cascade import ModelCooldownTracker
+    from llmcascade.model_pool import ModelPool
+
+    monkeypatch.setattr("llmcascade.selector.DISPATCH_WAIT_S", 60.0)
+    models = [_m("a"), _m("b")]
+    cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
+    now = datetime.now(timezone.utc)
+    cool.pool.mark_unavailable("a", "rate", now + timedelta(seconds=0.5))
+    cool.pool.mark_unavailable("b", "rate", now + timedelta(seconds=10))
+    real_sleep = asyncio.sleep
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        if len(sleeps) == 1:
+            cool.pool.mark_available("a")
+        await real_sleep(0)
+
+    monkeypatch.setattr("llmcascade.selector.asyncio.sleep", fake_sleep)
+    lim = RateLimiter(models, cooldowns=cool)
+    sel = ModelSelector(models, lim, cooldowns=cool)
+    calls: list[str] = []
+
+    async def executor(model, prompt):
+        calls.append(model.name)
+        return LLMResponse(text="ok", model=model.name, tokens_used=1)
+
+    resp = await sel.dispatch_with_fallback("hi", "chat", executor)
+    assert resp.model == "a"
+    assert sleeps
+    assert calls == ["a"]

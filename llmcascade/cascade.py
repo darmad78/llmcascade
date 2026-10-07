@@ -86,6 +86,13 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
                 "api key",
                 "authentication",
                 "permission denied",
+                "access denied",
+                "does not have access",
+                "free tier",
+                "free plan",
+                "free models",
+                "not available on the free",
+                "forbidden",
             )
         ):
             return "auth"
@@ -449,7 +456,7 @@ class ModelCooldownTracker:
         pool_kind: FailureKind = classified
         if classified == "credit":
             pool_kind = "daily"
-        if failover_probe and classified in ("credit", "daily", "auth"):
+        if failover_probe and classified in ("credit", "daily"):
             pool_kind = "rate"
         until = cooldown_until(pool_kind, now=now, headers=headers)
         if until is None:

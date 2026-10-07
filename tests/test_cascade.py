@@ -54,7 +54,7 @@ def test_classify_permanent():
 
 def test_classify_auth():
     assert classify_failure(401, "unauthorized") == "auth"
-    assert classify_failure(403, "forbidden") == "rate"
+    assert classify_failure(403, "forbidden") == "auth"
     assert classify_failure(403, "invalid api key") == "auth"
 
 
@@ -143,6 +143,13 @@ async def test_apply_from_error_failover_probe_short_rate(tmp_path):
         "deepseek/bar", status_code=402, body="Insufficient Balance", failover_probe=False
     )
     assert kind2 == "daily"
+
+    kind3 = await cool.apply_from_error(
+        "groq/baz", status_code=401, body="Unauthorized", failover_probe=True
+    )
+    assert kind3 == "auth"
+    row3 = cool.pool.cooldown_status()["groq/baz"]
+    assert row3["kind"] == "auth"
 
 
 @pytest.mark.asyncio

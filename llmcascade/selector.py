@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from llmcascade.adapters.base import LLMResponse
 from llmcascade.exceptions import AllModelsExhaustedError, ProviderError, safe_error_message
-from llmcascade.cascade import classify_failure
+from llmcascade.cascade import WAIT_CHUNK_S, classify_failure
+from llmcascade.health import health_unavailable
 from llmcascade.failures import classify_recorded_failure
 from llmcascade.event_log import events
 from llmcascade.metrics import log, metrics
@@ -24,6 +27,7 @@ STRATEGIES: frozenset[str] = frozenset(
 Executor = Callable[[ModelConfig, str], Awaitable[LLMResponse]]
 
 RETRY_SLEEP_S = 0.25
+DISPATCH_WAIT_S = float(os.environ.get("LLMCASCADE_DISPATCH_WAIT_S", "120"))
 
 
 def strategy_from_env(default: Strategy = "headroom") -> Strategy:
@@ -60,6 +64,7 @@ class ModelSelector:
         *,
         cooldowns: Any | None = None,
         quota_learn: Any | None = None,
+        health_states: Callable[[], dict[str, dict[str, Any]]] | None = None,
     ) -> None:
         self.registry = list(registry)
         self.rate_limiter = rate_limiter
@@ -67,8 +72,15 @@ class ModelSelector:
         self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
         self.cooldowns = cooldowns
         self.quota_learn = quota_learn
+        self._health_states = health_states
         self._rr_index = 0
         self._last_good: dict[str, str] = {}
+
+    def _health_state(self, model_name: str) -> str:
+        if self._health_states is None:
+            return "unknown"
+        row = self._health_states().get(model_name) or {}
+        return str(row.get("state") or "unknown")
 
     async def _eligible(self, capability: str, tokens_estimate: int) -> list[ModelConfig]:
         paid_ok = allow_paid_models()
@@ -80,9 +92,55 @@ class ModelSelector:
                 continue
             if getattr(m, "key_tier", "free") == "paid" and not paid_ok:
                 continue
+            if health_unavailable(self._health_state(m.name)):
+                continue
             if await self.rate_limiter.can_proceed(m.name, tokens_estimate):
                 out.append(m)
         return out
+
+    async def _cooldown_kind(self, model_name: str) -> str | None:
+        pool = getattr(self.cooldowns, "pool", None) if self.cooldowns is not None else None
+        if pool is None:
+            return None
+        return pool.kind(model_name)
+
+    async def _wait_for_free_model(
+        self,
+        capability: str,
+        tokens_estimate: int,
+        *,
+        tried: set[str],
+        deadline: float,
+    ) -> bool:
+        """Sleep in bounded chunks until a routable model may exist, or deadline."""
+        now_mono = time.monotonic()
+        if now_mono >= deadline:
+            return False
+        earliest: datetime | None = None
+        for m in self.registry:
+            if m.name in tried:
+                continue
+            if capability not in m.capabilities or not getattr(m, "enabled", True):
+                continue
+            if health_unavailable(self._health_state(m.name)):
+                continue
+            kind = await self._cooldown_kind(m.name)
+            if kind in ("permanent", "auth"):
+                continue
+            if await self.rate_limiter.can_proceed(m.name, tokens_estimate):
+                return True
+            if self.cooldowns is None:
+                continue
+            at = await self.cooldowns.available_at(m.name)
+            if at is not None and (earliest is None or at < earliest):
+                earliest = at
+        if earliest is None:
+            return False
+        remaining = (earliest - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return True
+        await asyncio.sleep(min(WAIT_CHUNK_S, remaining, max(0.0, deadline - now_mono)))
+        return True
 
     async def _rpd_score(self, model: ModelConfig) -> tuple[int, int]:
         """Lower source rank wins: live headers, then quota_learn, then YAML."""
@@ -386,6 +444,9 @@ class ModelSelector:
                 continue
             if name in tried:
                 continue
+            if health_unavailable(self._health_state(model.name)):
+                skipped_models.append({"model": name, "reason": "unavailable"})
+                continue
             if not await self.rate_limiter.try_reserve(model.name, tokens_est):
                 budget_blocked = True
                 if capability == "embed":
@@ -401,17 +462,25 @@ class ModelSelector:
                 if not allow_fallback:
                     break
 
+        wait_deadline = (
+            time.monotonic() + max(0.0, DISPATCH_WAIT_S)
+            if capability == "chat" and include_free and DISPATCH_WAIT_S > 0
+            else time.monotonic()
+        )
+
         while include_free:
             model = await self.pick(
                 capability, tokens_est, notes=note, exclude=tried
             )
             if model is None:
-                remaining = [
-                    m for m in await self._eligible(capability, tokens_est) if m.name not in tried
-                ]
-                if not remaining:
+                if not await self._wait_for_free_model(
+                    capability,
+                    tokens_est,
+                    tried=tried,
+                    deadline=wait_deadline,
+                ):
                     break
-                model = remaining[0]
+                continue
             if not await self.rate_limiter.try_reserve(model.name, tokens_est):
                 skipped_models.append({"model": model.name, "reason": "budget"})
                 tried.add(model.name)

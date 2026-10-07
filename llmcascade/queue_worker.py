@@ -86,6 +86,7 @@ class RouterClient:
             stats=self.stats,
             cooldowns=self.cooldowns,
             quota_learn=self.quota_learn,
+            health_states=health_cache.snapshot,
         )
         self._workers_n = workers
         self._max_queue = max_queue
