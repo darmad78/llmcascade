@@ -209,6 +209,8 @@ def test_embed_pages_after_login(client: TestClient):
     assert "not signed in — open /login" in llm.text
     assert 'renderLog($("errors"), lastErrors, "no errors")' in llm.text
     assert 'renderLog($("errors"), filterByType(lastErrors)' not in llm.text
+    assert "expandRequestOk: true" in llm.text
+    assert "details.event-ok" in llm.text
 
     retire = client.get("/retire-watch")
     assert retire.status_code == 200
