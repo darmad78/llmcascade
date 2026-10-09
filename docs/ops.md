@@ -52,5 +52,5 @@ Two independent layers (API key vs admin cookie). Env vars, bcrypt hashes, `ALLO
 - Admin POSTs use double-submit CSRF. Login lockout after 5 failures is process-local.
 - Provider keys saved in the UI are encrypted at rest with Fernet using an **HKDF-derived** key from `SECRET_KEY`.
 - Models with `key_tier=paid` are skipped unless `ALLOW_PAID=true`.
-- Logging / `/v1/events`: metadata only. No prompts, completions, API keys, or raw provider bodies.
+- Logging / `/v1/events`: metadata only by default; no completions, API keys, or raw provider bodies. On the **Status → Events** panel (admin session via `/v1/dashboard`), successful `request_ok` rows expand to show the truncated request prompt only — not model responses.
 - `/failures` (Mongo, 30-day TTL): classified kinds (`rate` / `daily` / `credit` / `auth` / `timeout` / `permanent`). Uncategorized errors store a redacted snippet so you can add a new kind later.

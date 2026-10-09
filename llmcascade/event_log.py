@@ -18,6 +18,18 @@ EVENT_TYPES = (
     "system",
 )
 
+# Max prompt length stored on request_ok event detail (ring buffer).
+EVENT_DETAIL_PROMPT_MAX = 8192
+
+
+def truncate_event_detail_prompt(prompt: str | None) -> str | None:
+    if prompt is None:
+        return None
+    s = str(prompt)
+    if len(s) <= EVENT_DETAIL_PROMPT_MAX:
+        return s
+    return s[:EVENT_DETAIL_PROMPT_MAX] + "…"
+
 
 @dataclass
 class Event:
