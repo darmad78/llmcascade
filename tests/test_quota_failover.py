@@ -53,7 +53,7 @@ async def test_ingest_ignores_all_zero_remaining():
 
 
 @pytest.mark.asyncio
-async def test_403_failover_applies_rate_cooldown(tmp_path):
+async def test_403_failover_applies_auth_cooldown(tmp_path):
     models = [_m("a"), _m("b")]
     cool = ModelCooldownTracker(pool=ModelPool(path=tmp_path / "pools.json"))
     lim = RateLimiter(models, cooldowns=cool)
@@ -66,3 +66,4 @@ async def test_403_failover_applies_rate_cooldown(tmp_path):
 
     await sel.dispatch_with_fallback("hi", "chat", executor)
     assert await cool.is_cooling("a")
+    assert cool.pool.kind("a") == "auth"

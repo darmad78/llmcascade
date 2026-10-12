@@ -56,6 +56,7 @@ def test_classify_auth():
     assert classify_failure(401, "unauthorized") == "auth"
     assert classify_failure(403, "forbidden") == "auth"
     assert classify_failure(403, "invalid api key") == "auth"
+    assert classify_failure(403, "HTTP 403") == "auth"
 
 
 def test_classify_transient():
@@ -126,7 +127,7 @@ def test_effective_cascade_hides_and_reorders(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_apply_from_error_failover_probe_short_rate(tmp_path):
+async def test_apply_from_error_failover_probe_credit_and_daily(tmp_path):
     from llmcascade.cascade import ModelCooldownTracker
     from llmcascade.model_pool import ModelPool
 
@@ -134,10 +135,20 @@ async def test_apply_from_error_failover_probe_short_rate(tmp_path):
     kind = await cool.apply_from_error(
         "together/foo", status_code=402, body="Payment Required", failover_probe=True
     )
-    assert kind == "rate"
+    assert kind == "daily"
     assert await cool.is_cooling("together/foo")
     row = cool.pool.cooldown_status()["together/foo"]
-    assert row["kind"] == "rate"
+    assert row["kind"] == "daily"
+
+    kind_daily_probe = await cool.apply_from_error(
+        "openrouter/qux",
+        status_code=429,
+        body="PerDay quota exceeded",
+        failover_probe=True,
+    )
+    assert kind_daily_probe == "rate"
+    row_daily = cool.pool.cooldown_status()["openrouter/qux"]
+    assert row_daily["kind"] == "rate"
 
     kind2 = await cool.apply_from_error(
         "deepseek/bar", status_code=402, body="Insufficient Balance", failover_probe=False
