@@ -422,6 +422,16 @@ def apply_registry_reload() -> dict[str, Any]:
     return {"ok": True, "models": n}
 
 
+def _skip_client_peak_stats(notes: str | None) -> bool:
+    return (notes or "").strip() == "retire-watch"
+
+
+def _record_terminal_http_failure(capability: str, notes: str | None) -> None:
+    if _stats is None or _skip_client_peak_stats(notes):
+        return
+    _stats.enqueue_terminal_failed(capability)
+
+
 async def _submit_inference(
     prompt: str,
     capability: str,
@@ -433,8 +443,6 @@ async def _submit_inference(
     include_free_cascade: bool | None = None,
 ) -> LLMResponse:
     client = _require_client()
-    if _stats is not None:
-        _stats.enqueue_recv(capability)
     try:
         return await client.submit(
             prompt,
@@ -446,13 +454,16 @@ async def _submit_inference(
             **params,
         )
     except ValueError as exc:
+        _record_terminal_http_failure(capability, notes)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AllModelsExhaustedError as exc:
+        _record_terminal_http_failure(capability, notes)
         detail: Any = str(exc)
         if exc.skipped_models:
             detail = {"message": str(exc), "skipped_models": exc.skipped_models}
         raise HTTPException(status_code=exc.http_status, detail=detail) from exc
     except Exception as exc:
+        _record_terminal_http_failure(capability, notes)
         detail: dict[str, Any] = {"capability": capability}
         if notes and str(notes).strip():
             detail["notes"] = str(notes).strip()

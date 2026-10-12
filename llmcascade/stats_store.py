@@ -73,6 +73,7 @@ class StatsStore:
         self._req_24h = self._db["req_24h"]
         self._req_24h_peak = self._db["req_24h_peak"]
         self._recv_24h = self._db["recv_24h"]
+        self._failed_24h = self._db["failed_24h"]
         self.configured = True
         self.detail = ""
         # Strong refs so fire-and-forget tasks are not GC'd before they run.
@@ -122,6 +123,8 @@ class StatsStore:
         await self._req_24h.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
         await self._recv_24h.create_index("ts", expireAfterSeconds=24 * 3600, name="ts_ttl_24h")
         await self._recv_24h.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
+        await self._failed_24h.create_index("ts", expireAfterSeconds=24 * 3600, name="ts_ttl_24h")
+        await self._failed_24h.create_index([("capability", 1), ("ts", -1)], name="capability_ts")
 
     async def close(self) -> None:
         if self._pending:
@@ -160,11 +163,16 @@ class StatsStore:
         task.add_done_callback(self._pending.discard)
 
     def enqueue_recv(self, capability: str = "chat") -> None:
+        """Deprecated: received is no longer counted at request entry."""
+        return None
+
+    def enqueue_terminal_failed(self, capability: str = "chat") -> None:
+        """One count per HTTP request that ends in a terminal error response."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        task = loop.create_task(self.record_recv(capability))
+        task = loop.create_task(self.record_terminal_failed(capability))
         self._pending.add(task)
         task.add_done_callback(self._pending.discard)
 
@@ -322,7 +330,7 @@ class StatsStore:
                 },
                 upsert=True,
             )
-            if success:
+            if success and notes_key(notes) != "retire-watch":
                 await self._bump_peak_24h(cap, now)
         except Exception as exc:  # noqa: BLE001 — never fail request path on stats
             log.error(
@@ -350,6 +358,16 @@ class StatsStore:
         except Exception as exc:  # noqa: BLE001
             log.error(f"recv persist failed: {exc}", extra={"capability": cap})
 
+    async def record_terminal_failed(
+        self, capability: str = "chat", *, now: datetime | None = None
+    ) -> None:
+        cap = (capability or "chat").strip() or "chat"
+        at = now or datetime.now(timezone.utc)
+        try:
+            await self._failed_24h.insert_one({"ts": at, "capability": cap})
+        except Exception as exc:  # noqa: BLE001
+            log.error(f"failed_24h persist failed: {exc}", extra={"capability": cap})
+
     async def _bump_peak_24h(self, capability: str, now: datetime) -> None:
         await self._req_24h.insert_one({"ts": now, "capability": capability})
         window = await self._req_24h.count_documents(
@@ -375,12 +393,12 @@ class StatsStore:
             peak = int((doc or {}).get("peak") or 0)
             if window > peak:
                 peak = window
-            recv = int(
-                await self._recv_24h.count_documents(
+            failed = int(
+                await self._failed_24h.count_documents(
                     {"capability": cap, "ts": {"$gte": since}}
                 )
             )
-            out[cap] = {"window": window, "peak": peak, "recv": recv}
+            out[cap] = {"window": window, "peak": peak, "failed": failed}
         return out
 
     @staticmethod
@@ -672,6 +690,9 @@ class NullStatsStore:
     def enqueue_recv(self, capability: str = "chat") -> None:
         return None
 
+    def enqueue_terminal_failed(self, capability: str = "chat") -> None:
+        return None
+
     async def record(self, **_kwargs: Any) -> None:
         return None
 
@@ -709,6 +730,6 @@ class NullStatsStore:
 
     async def snapshot_peak_24h(self) -> dict[str, dict[str, int]]:
         return {
-            "chat": {"window": 0, "peak": 0, "recv": 0},
-            "embed": {"window": 0, "peak": 0, "recv": 0},
+            "chat": {"window": 0, "peak": 0, "failed": 0},
+            "embed": {"window": 0, "peak": 0, "failed": 0},
         }
