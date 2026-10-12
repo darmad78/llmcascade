@@ -250,6 +250,37 @@
     }
     .log-window .err { color: var(--bad); }
     .log-window .ok-line { color: var(--ok); }
+    .log-window details.event-ok {
+      margin: 0.15rem 0;
+      color: inherit;
+    }
+    .log-window details.event-ok > summary {
+      cursor: pointer;
+      list-style: none;
+    }
+    .log-window details.event-ok > summary::-webkit-details-marker { display: none; }
+    .log-window details.event-ok > summary::before {
+      content: "▸ ";
+      color: var(--muted);
+    }
+    .log-window details.event-ok[open] > summary::before { content: "▾ "; }
+    .log-window .event-ok-body {
+      margin: 0.25rem 0 0.35rem 1rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-window .event-ok-body .event-prompt {
+      display: block;
+      margin-top: 0.35rem;
+      padding: 0.35rem 0.5rem;
+      background: var(--panel-2);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+    }
     .log-window .ts { color: var(--muted); }
     .empty { color: var(--muted); }
     .event-filters {
@@ -1016,7 +1047,39 @@
       }).join("");
     }
 
-    function renderLog(el, items, emptyMsg) {
+    function eventOneLiner(e) {
+      const model = e.model ? ` [${e.model}]` : "";
+      const notes = e.detail?.notes ? ` · ${e.detail.notes}` : "";
+      const extra = e.detail?.error ? ` — ${e.detail.error}` : "";
+      return `<span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(notes)}${escapeHtml(extra)}`;
+    }
+
+    function renderRequestOkExpand(e, lineCls) {
+      const d = e.detail || {};
+      const cap = d.capability ?? "—";
+      const notes = d.notes ?? "—";
+      const model = e.model ?? "—";
+      const provider = e.provider ?? d.provider ?? "—";
+      const lat = d.latency_ms != null ? `${d.latency_ms} ms` : "—";
+      const tok = d.tokens_used != null ? String(d.tokens_used) : "—";
+      const prompt = d.prompt ?? d.request ?? "";
+      const body = [
+        `capability: ${cap}`,
+        `notes: ${notes}`,
+        `model: ${model}`,
+        `provider: ${provider}`,
+        `latency: ${lat}`,
+        `tokens: ${tok}`,
+        "Request:",
+      ].map((line) => escapeHtml(line)).join("\n");
+      const promptBlock = prompt
+        ? `<span class="event-prompt">${escapeHtml(prompt)}</span>`
+        : `<span class="event-prompt">—</span>`;
+      return `<details class="event-ok ${lineCls}"><summary>${eventOneLiner(e)}</summary><div class="event-ok-body">${body}\n${promptBlock}</div></details>`;
+    }
+
+    function renderLog(el, items, emptyMsg, opts) {
+      opts = opts || {};
       if (!items.length) {
         el.innerHTML = `<span class="empty">${emptyMsg}</span>`;
         return;
@@ -1025,10 +1088,10 @@
       el.innerHTML = items.map((e) => {
         const cls = e.level === "error" || e.detail?.success === false ? "err"
           : e.detail?.success === true ? "ok-line" : "";
-        const model = e.model ? ` [${e.model}]` : "";
-        const notes = e.detail?.notes ? ` · ${e.detail.notes}` : "";
-        const extra = e.detail?.error ? ` — ${e.detail.error}` : "";
-        return `<div class="${cls}"><span class="ts">${fmtTime(e.ts)}</span> ${escapeHtml(e.message)}${escapeHtml(model)}${escapeHtml(notes)}${escapeHtml(extra)}</div>`;
+        if (opts.expandRequestOk && e.type === "request_ok" && e.detail?.success !== false) {
+          return renderRequestOkExpand(e, cls);
+        }
+        return `<div class="${cls}">${eventOneLiner(e)}</div>`;
       }).join("");
       if (stickTop) el.scrollTop = 0;
     }
@@ -1067,7 +1130,7 @@
       wrap.querySelectorAll("input[data-etype]").forEach((inp) => {
         inp.addEventListener("change", () => {
           eventTypeVisible[inp.dataset.etype] = inp.checked;
-          renderLog($("events"), filterByType(lastEvents), "no events yet");
+          renderLog($("events"), filterByType(lastEvents), "no events yet", { expandRequestOk: true });
         });
       });
     }
@@ -1123,7 +1186,7 @@
         renderGemini(data.gemini_cascade, "gemini-panel", "gemini-summary", "gemini-rows");
         lastEvents = data.events || [];
         lastErrors = data.errors || [];
-        renderLog($("events"), filterByType(lastEvents), "no events yet");
+        renderLog($("events"), filterByType(lastEvents), "no events yet", { expandRequestOk: true });
         renderLog($("errors"), lastErrors, "no errors");
         const q = data.queue || {};
         const next = data.next_pick

@@ -13,7 +13,7 @@ from llmcascade.exceptions import AllModelsExhaustedError, ProviderError, safe_e
 from llmcascade.cascade import WAIT_CHUNK_S, classify_failure
 from llmcascade.health import health_unavailable
 from llmcascade.failures import classify_recorded_failure
-from llmcascade.event_log import events
+from llmcascade.event_log import events, truncate_event_detail_prompt
 from llmcascade.metrics import log, metrics
 from llmcascade.rate_limiter import RateLimiter
 from llmcascade.registry import ModelConfig
@@ -344,6 +344,7 @@ class ModelSelector:
                 latency_ms=resp.latency_ms,
                 tokens_used=used,
                 capability=capability,
+                prompt=truncate_event_detail_prompt(prompt),
                 **note_detail,
             )
             await self.rate_limiter.record_success_usage(model.name, used)
