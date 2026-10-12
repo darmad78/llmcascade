@@ -26,12 +26,15 @@ class ProviderError(Exception):
     @property
     def safe_message(self) -> str:
         """Status/provider/model only — never include provider response bodies."""
-        parts = []
-        if self.provider:
-            parts.append(self.provider)
-        if self.model:
-            parts.append(self.model)
-        who = "/".join(parts) if parts else "provider"
+        if self.model and self.provider and self.model.startswith(f"{self.provider}/"):
+            who = self.model
+        else:
+            parts = []
+            if self.provider:
+                parts.append(self.provider)
+            if self.model:
+                parts.append(self.model)
+            who = "/".join(parts) if parts else "provider"
         if self.status_code is not None:
             return f"{who} HTTP {self.status_code}"
         return f"{who} error"
