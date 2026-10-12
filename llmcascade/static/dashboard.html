@@ -494,9 +494,9 @@
       </button>
       <div class="panel-body">
       <div class="peak-24h" id="peak-24h">
-        <div><span class="lbl">received</span><span class="num" id="peak-recv">—</span></div>
-        <div><span class="lbl">handled</span><span class="num" id="peak-window">—</span></div>
-        <div><span class="lbl">max</span><span class="num" id="peak-max">—</span></div>
+        <div><span class="lbl" title="Successful HTTP responses in the rolling 24h window">succeeded</span><span class="num" id="peak-window">—</span></div>
+        <div><span class="lbl" title="Terminal HTTP errors returned to the client (400/502/503), once per request — not MCP retries">failed</span><span class="num" id="peak-failed">—</span></div>
+        <div><span class="lbl" title="Highest rolling 24h succeeded count recorded">max</span><span class="num" id="peak-max">—</span></div>
       </div>
       </div>
     </section>
@@ -1144,15 +1144,15 @@
         const peak = data.peak_24h || {};
         const max24 = Number(peak.peak || 0);
         const win24 = Number(peak.window || 0);
-        const recv24 = Number(peak.recv || 0);
+        const fail24 = Number(peak.failed || 0);
         const winEl = $("peak-window");
         const maxEl = $("peak-max");
-        const recvEl = $("peak-recv");
+        const failEl = $("peak-failed");
         if (winEl) winEl.textContent = String(win24);
         if (maxEl) maxEl.textContent = String(max24);
-        if (recvEl) recvEl.textContent = String(recv24);
+        if (failEl) failEl.textContent = String(fail24);
         $("meta").textContent =
-          `24h ${win24} · max ${max24} · recv ${recv24} · rpd left ${rpdKnown ? `${rpdLeft}/${rpdCap || "—"}` : "—"} today · ${models.length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · ${new Date().toLocaleTimeString()}`;
+          `24h ok ${win24} · failed ${fail24} · max ${max24} · rpd left ${rpdKnown ? `${rpdLeft}/${rpdCap || "—"}` : "—"} today · ${models.length} models · ${next} · queue ${q.depth ?? 0}/${q.maxsize ?? "—"} · ${new Date().toLocaleTimeString()}`;
       } catch (err) {
         $("meta").textContent = `refresh failed: ${err.message}`;
       } finally {

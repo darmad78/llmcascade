@@ -79,14 +79,17 @@ def test_filter_dashboard_keeps_embed_models_only():
         "next_embed": {"name": "b"},
         "gemini_cascade": {"x": 1},
         "replacements": [{"old": "dead-id", "new": "live-id", "provider": "groq"}],
-        "peak_24h": {"chat": {"window": 9, "peak": 10, "recv": 12}, "embed": {"window": 1, "peak": 1, "recv": 3}},
+        "peak_24h": {
+            "chat": {"window": 9, "peak": 10, "failed": 2},
+            "embed": {"window": 1, "peak": 1, "failed": 3},
+        },
     }
     out = filter_dashboard(data, "embed")
     assert [m["name"] for m in out["models"]] == ["b"]
     assert out["next_pick"]["name"] == "b"
     assert out["gemini_cascade"] is None
     assert out["replacements"] == []
-    assert out["peak_24h"] == {"window": 1, "peak": 1, "recv": 3}
+    assert out["peak_24h"] == {"window": 1, "peak": 1, "failed": 3}
     types = [(e.get("type"), e.get("capability")) for e in out["events"]]
     assert ("request_ok", "embed") in types
     assert ("system", None) in types
@@ -204,7 +207,7 @@ def test_embed_pages_after_login(client: TestClient):
     assert 'id="models-replaced"' in llm.text
     assert 'data-section="available"' in llm.text
     assert "llmcascade.dashboardSections" in llm.text
-    assert 'id="peak-recv"' in llm.text
+    assert 'id="peak-failed"' in llm.text
     assert "const CAPABILITY = \"chat\"" in llm.text
     assert "not signed in — open /login" in llm.text
     assert 'renderLog($("errors"), lastErrors, "no errors")' in llm.text

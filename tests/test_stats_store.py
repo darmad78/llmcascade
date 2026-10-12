@@ -219,30 +219,60 @@ async def test_mongo_24h_counter_keeps_max():
     store = StatsStore.__new__(StatsStore)
     store._req_24h = _Hits()
     store._req_24h_peak = _Peaks()
-    store._recv_24h = _Hits()
+    store._failed_24h = _Hits()
     t0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
     await store._bump_peak_24h("chat", t0)
     await store._bump_peak_24h("chat", t0 + timedelta(hours=1))
     snap = await store.snapshot_peak_24h(now=t0 + timedelta(hours=2))
-    assert snap["chat"] == {"window": 2, "peak": 2, "recv": 0}
+    assert snap["chat"] == {"window": 2, "peak": 2, "failed": 0}
     await store._bump_peak_24h("chat", t0 + timedelta(hours=25))
     later = await store.snapshot_peak_24h(now=t0 + timedelta(hours=26))
     assert later["chat"]["window"] == 1
     assert later["chat"]["peak"] == 2
-    assert later["chat"]["recv"] == 0
+    assert later["chat"]["failed"] == 0
 
 
 @pytest.mark.asyncio
-async def test_recv_24h_counts_incoming_not_handled():
+async def test_failed_24h_counts_terminal_http_errors():
     store = StatsStore.__new__(StatsStore)
     store._req_24h = _Hits()
     store._req_24h_peak = _Peaks()
-    store._recv_24h = _Hits()
+    store._failed_24h = _Hits()
     t0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
-    await store.record_recv("chat", now=t0)
-    await store.record_recv("chat", now=t0)
+    await store.record_terminal_failed("chat", now=t0)
+    await store.record_terminal_failed("chat", now=t0)
     await store._bump_peak_24h("chat", t0)
     snap = await store.snapshot_peak_24h(now=t0)
-    assert snap["chat"]["recv"] == 2
+    assert snap["chat"]["failed"] == 2
     assert snap["chat"]["window"] == 1
-    assert snap["embed"]["recv"] == 0
+    assert snap["embed"]["failed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_retire_watch_skips_peak_bump_on_success():
+    store = StatsStore.__new__(StatsStore)
+    store._req_24h = _Hits()
+    store._req_24h_peak = _Peaks()
+    store._failed_24h = _Hits()
+    store._buckets = None  # type: ignore[assignment]
+    store._totals = None  # type: ignore[assignment]
+
+    async def _noop_update(*_a, **_k):
+        return None
+
+    store._buckets = type("_B", (), {"update_one": staticmethod(_noop_update)})()
+    store._totals = type("_T", (), {"update_one": staticmethod(_noop_update)})()
+
+    t0 = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+    await store.record(
+        model="m",
+        provider="p",
+        success=True,
+        notes="retire-watch",
+        at=t0,
+    )
+    snap = await store.snapshot_peak_24h(now=t0)
+    assert snap["chat"]["window"] == 0
+    await store.record(model="m", provider="p", success=True, notes="app", at=t0)
+    snap2 = await store.snapshot_peak_24h(now=t0)
+    assert snap2["chat"]["window"] == 1
