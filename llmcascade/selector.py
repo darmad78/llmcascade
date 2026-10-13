@@ -32,6 +32,7 @@ HEALTH_POLL_S = 1.0
 DISPATCH_WAIT_S = float(os.environ.get("LLMCASCADE_DISPATCH_WAIT_S", "120"))
 STICKY_MAX = 1024
 DEFAULT_DEADLINE_S = 90.0
+DEFAULT_ATTEMPT_TIMEOUT_S = 25.0
 
 
 def request_deadline_s() -> float:
@@ -42,6 +43,17 @@ def request_deadline_s() -> float:
         return max(5.0, float(raw))
     except ValueError:
         return DEFAULT_DEADLINE_S
+
+
+def attempt_timeout_s() -> float:
+    """Per-provider attempt cap so one slow model cannot burn the whole deadline."""
+    raw = (os.environ.get("LLMCASCADE_ATTEMPT_TIMEOUT_S") or "").strip()
+    if not raw:
+        return DEFAULT_ATTEMPT_TIMEOUT_S
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return DEFAULT_ATTEMPT_TIMEOUT_S
 
 
 def strategy_from_env(default: Strategy = "headroom") -> Strategy:
@@ -171,10 +183,11 @@ class ModelSelector:
         return (2, int(rem.get("rpd") or 0))
 
     async def _headroom_pick(self, eligible: list[ModelConfig]) -> ModelConfig:
-        scored: list[tuple[int, int, int, str, ModelConfig]] = []
+        scored: list[tuple[int, int, int, int, str, ModelConfig]] = []
         for m in eligible:
+            near_cap = int(await self.rate_limiter.near_learned_rpm(m.name))
             src, rpd = await self._rpd_score(m)
-            scored.append((src, -rpd, m.priority, m.name, m))
+            scored.append((near_cap, src, -rpd, m.priority, m.name, m))
         scored.sort()
         return scored[0][-1]
 
@@ -219,9 +232,18 @@ class ModelSelector:
                 provider=model.provider,
                 model=model.name,
             )
+        attempt_s = attempt_timeout_s()
         try:
-            return await asyncio.wait_for(coro, timeout=remaining)
+            return await asyncio.wait_for(coro, timeout=min(remaining, attempt_s))
         except asyncio.TimeoutError as exc:
+            if attempt_s < remaining:
+                raise ProviderError(
+                    f"attempt timed out after {attempt_s:.0f}s",
+                    retryable=False,
+                    provider=model.provider,
+                    model=model.name,
+                    kind="rate",
+                ) from exc
             raise ProviderError(
                 "request deadline exceeded",
                 retryable=False,
@@ -321,6 +343,33 @@ class ModelSelector:
                 provider=model.provider,
                 model=model.name,
             ) from exc
+
+    def _learns(self, model: ModelConfig) -> bool:
+        return self.quota_learn is not None and not (model.provider == "gemini" and model.cascade)
+
+    async def _learn_success(self, model: ModelConfig) -> None:
+        if not self._learns(model):
+            return
+        ok = await self.rate_limiter.window_count(model.name, "rpm")
+        self.quota_learn.observe_rpm_success(model.name, model.provider, ok)
+
+    async def _learn_rate_limit(self, model: ModelConfig, exc: ProviderError) -> None:
+        if exc.status_code != 429 or not self._learns(model):
+            return
+        if classify_failure(429, str(exc)) != "rate":
+            return
+        ok = await self.rate_limiter.window_count(model.name, "rpm")
+        learned = self.quota_learn.record_rate_limit(
+            model.name, model.provider, ok, body=str(exc)
+        )
+        if learned is not None:
+            events.record(
+                f"learned rpm={learned}",
+                level="info",
+                type="quota_learn",
+                model=model.name,
+                provider=model.provider,
+            )
 
     def _with_skipped(self, resp: LLMResponse, skipped: list[dict[str, str]]) -> LLMResponse:
         if not skipped:
@@ -422,6 +471,7 @@ class ModelSelector:
                 self.quota_learn.record_success(
                     (resp.model or model.name), model.provider
                 )
+            await self._learn_success(model)
             if capability != "embed":
                 self._remember(note, model.name)
             return self._with_skipped(resp, skipped_models)
@@ -454,6 +504,7 @@ class ModelSelector:
                     self.quota_learn.record_limit(
                         (exc.model or model.name), model.provider, kind
                     )
+            await self._learn_rate_limit(model, exc)
             if self.cooldowns is not None and not skip_learn:
                 kind = await self.cooldowns.apply_from_error(
                     model.name,
@@ -462,6 +513,7 @@ class ModelSelector:
                     headers=getattr(exc, "headers", None),
                     failover_probe=failover_probe,
                     provider=model.provider,
+                    kind=exc.kind,  # type: ignore[arg-type]
                 )
                 if kind is not None:
                     events.record(
@@ -678,8 +730,27 @@ class ModelSelector:
             )
             if self.quota_learn is not None and not (model.provider == "gemini" and model.cascade):
                 self.quota_learn.record_success((first.model or model.name), model.provider)
+            await self._learn_success(model)
             if capability != "embed":
                 self._remember(note, model.name)
+
+        async def first_chunk(model: ModelConfig) -> tuple[ModelConfig, AsyncIterator[StreamChunk], StreamChunk]:
+            async def run() -> tuple[ModelConfig, AsyncIterator[StreamChunk], StreamChunk]:
+                m, stream = await attempt(model)
+                return m, stream, await stream.__anext__()
+
+            remaining = deadline - loop.time()
+            attempt_s = attempt_timeout_s()
+            try:
+                return await asyncio.wait_for(run(), timeout=max(0.0, min(remaining, attempt_s)))
+            except asyncio.TimeoutError as exc:
+                raise ProviderError(
+                    f"attempt timed out after {min(remaining, attempt_s):.0f}s",
+                    retryable=False,
+                    provider=model.provider,
+                    model=model.name,
+                    kind="rate" if attempt_s < remaining else None,
+                ) from exc
 
         candidates: list[ModelConfig] = []
         for name in preferred:
@@ -704,8 +775,7 @@ class ModelSelector:
                 continue
             tried.add(model.name)
             try:
-                m, stream = await attempt(model)
-                first = await stream.__anext__()
+                m, stream, first = await first_chunk(model)
                 await on_success(m, first)
 
                 async def with_first() -> AsyncIterator[StreamChunk]:
@@ -718,7 +788,7 @@ class ModelSelector:
                 last_err = exc
                 skipped_models.append({"model": model.name, "reason": "error"})
                 failover_probe = include_free and model.name not in preferred_names
-                kind = exc.kind or classify_failure(exc.status_code, str(exc))
+                await self._learn_rate_limit(model, exc)
                 if self.cooldowns is not None and not (model.provider == "gemini" and model.cascade):
                     await self.cooldowns.apply_from_error(
                         model.name,
@@ -727,6 +797,7 @@ class ModelSelector:
                         headers=getattr(exc, "headers", None),
                         failover_probe=failover_probe,
                         provider=model.provider,
+                        kind=exc.kind,  # type: ignore[arg-type]
                     )
 
         msg = f"no free-tier model succeeded for capability={capability!r}"

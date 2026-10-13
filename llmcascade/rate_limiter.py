@@ -4,6 +4,7 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
+from collections.abc import Callable
 from typing import Any, Deque
 
 from llmcascade.provider_quota import parse_openrouter_key, parse_quota_headers
@@ -39,7 +40,9 @@ def _prune(events: Deque[tuple[float, int]] | list[tuple[float, int]], now: floa
 class RateLimiter:
     """Process-local rate limiter. Not safe across multiple uvicorn workers."""
 
-    WINDOWS = {"rps": 1.0, "rpm": 60.0, "rpd": 86400.0, "tpm": 60.0}
+    # "rpm" counts successes (what providers accepted); "attempts" counts every
+    # reservation so in-flight requests also count against a learned RPM cap.
+    WINDOWS = {"rps": 1.0, "rpm": 60.0, "rpd": 86400.0, "tpm": 60.0, "attempts": 60.0}
     LIVE_TTL_S = {"rpm": 60.0, "tpm": 60.0, "rpd": 3600.0}
 
     def __init__(
@@ -62,6 +65,25 @@ class RateLimiter:
         self._live_lock = asyncio.Lock()
         self._live_refresh_at = 0.0
         self._live_ttl_s = 20.0
+        self.learned_rpm: Callable[[str], int | None] | None = None
+
+    def _learned_rpm(self, model_name: str) -> int | None:
+        if self.learned_rpm is None:
+            return None
+        try:
+            return self.learned_rpm(model_name)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def window_count(self, model_name: str, metric: str) -> int:
+        async with self._lock(model_name):
+            return await self._count(model_name, metric, time.monotonic())
+
+    async def near_learned_rpm(self, model_name: str, margin: int = 1) -> bool:
+        cap = self._learned_rpm(model_name)
+        if cap is None:
+            return False
+        return await self.window_count(model_name, "attempts") >= max(0, cap - margin)
 
     def replace_models(self, models: list[ModelConfig]) -> None:
         """Hot-reload model limit map; preserve budget event store."""
@@ -237,8 +259,11 @@ class RateLimiter:
             now = time.monotonic()
             limits = model.limits
             # YAML rpd/rpm/tpm are guesses — do not refuse until the provider 429s
-            # (cooldown / live headers) or local rps would stampede.
+            # (cooldown / live headers / learned RPM) or local rps would stampede.
             if await self._count(model_name, "rps", now) >= limits.rps:
+                return False
+            cap = self._learned_rpm(model_name)
+            if cap is not None and await self._count(model_name, "attempts", now) >= cap:
                 return False
             return True
 
@@ -264,10 +289,14 @@ class RateLimiter:
             limits = model.limits
             if await self._count(model_name, "rps", now) >= limits.rps:
                 return False
-            key = f"{model_name}:rps"
-            events = _prune(await self._store.get_events(key), now, self.WINDOWS["rps"])
-            events.append((now, 1))
-            await self._store.set_events(key, events)
+            cap = self._learned_rpm(model_name)
+            if cap is not None and await self._count(model_name, "attempts", now) >= cap:
+                return False
+            for metric in ("rps", "attempts"):
+                key = f"{model_name}:{metric}"
+                events = _prune(await self._store.get_events(key), now, self.WINDOWS[metric])
+                events.append((now, 1))
+                await self._store.set_events(key, events)
             return True
 
     async def record_success_usage(self, model_name: str, tokens_used: int) -> None:
@@ -342,6 +371,9 @@ class RateLimiter:
                 "rpd": max(0, lim.rpd - used["rpd"]),
                 "tpm": max(0, lim.tpm - used["tpm"]),
             }
+            learned = self._learned_rpm(model_name)
+            if learned is not None:
+                out["rpm"] = max(0, learned - await self._count(model_name, "attempts", now))
             live = self._live_view(model_name)
             for metric in ("rpm", "rpd", "tpm"):
                 if metric in live:
@@ -351,6 +383,8 @@ class RateLimiter:
                 out["limit_rpd"] = caps["rpd"]
             if "rpm" in caps:
                 out["limit_rpm"] = caps["rpm"]
+            elif learned is not None:
+                out["limit_rpm"] = learned
             if blocked:
                 out["rpd"] = 0
                 out["rpm"] = 0

@@ -607,8 +607,9 @@ class ModelCooldownTracker:
         now: datetime | None = None,
         failover_probe: bool = False,
         provider: str = "",
+        kind: FailureKind | None = None,
     ) -> FailureKind | None:
-        classified = classify_failure(status_code, body)
+        classified = kind or classify_failure(status_code, body)
         pool_kind: FailureKind = classified
         if classified == "credit":
             pool_kind = "daily"

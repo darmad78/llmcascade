@@ -79,6 +79,10 @@ class StatsStore:
         # Strong refs so fire-and-forget tasks are not GC'd before they run.
         self._pending: set[asyncio.Task[Any]] = set()
 
+    @property
+    def db(self) -> Any:
+        return self._db
+
     @classmethod
     async def connect(cls, uri: str | None = None, db_name: str | None = None) -> StatsStore | None:
         uri = (uri if uri is not None else os.environ.get("MONGODB_URI", "")).strip()

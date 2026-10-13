@@ -1,6 +1,13 @@
-"""Learn per-model daily quota by counting successes until the provider 429s.
+"""Learn per-model quotas from provider behaviour.
 
-YAML rpd/rpm are guesses. This store is the observed cap for each model ID.
+YAML rpd/rpm are guesses. This store is the observed cap for each model ID:
+
+- RPD: count successes until the provider returns a daily/credit limit.
+- RPM: additive increase / multiplicative decrease. A per-minute 429 sets the
+  cap to the successes seen in the last 60s; a success at the cap raises it by
+  one so the estimate keeps probing for spare capacity.
+
+Persisted to MongoDB when available (``attach_mongo``), else local JSON.
 """
 
 from __future__ import annotations
@@ -12,12 +19,14 @@ from zoneinfo import ZoneInfo
 
 from pathlib import Path
 
-from llmcascade.persist import JsonState
+from llmcascade.persist import JsonState, MongoState
 from llmcascade.secrets import data_dir
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 _LOCK = threading.Lock()
 _PRUNE_DAYS = 30
+MONGO_COLLECTION = "quota_learned"
+_TOKEN_LIMIT_HINTS = ("tokens per minute", "tpm", "token limit", "tokens_per_minute")
 
 
 def _path() -> Path:
@@ -76,6 +85,79 @@ class QuotaLearner:
 
     def flush(self) -> None:
         self._state.flush()
+
+    async def aflush(self) -> None:
+        await self._state.aflush()
+
+    @property
+    def backend(self) -> str:
+        return "mongo" if isinstance(self._state, MongoState) else "json"
+
+    async def attach_mongo(self, collection: Any) -> None:
+        """Switch persistence to Mongo. Seeds an empty collection from local JSON."""
+        docs = await collection.find({}).to_list(length=None)
+        remote = {str(d.pop("_id")): d for d in docs if d.get("_id") is not None}
+        with _LOCK:
+            with self._state.lock:
+                local = dict(self._state.data)
+            if remote:
+                state = MongoState(collection, remote, saved=remote)
+            else:
+                state = MongoState(collection, local)
+            with state.lock:
+                _prune_old(state.data, datetime.now(timezone.utc))
+            self._state = state
+        await state.aflush()
+
+    def observe_rpm_success(self, model_id: str, provider: str, window_ok: int) -> int | None:
+        """Raise the learned RPM by one when a success lands at (or past) the cap."""
+        key = (model_id or "").strip()
+        if not key:
+            return None
+        with _LOCK:
+            with self._state.lock:
+                raw = self._state.data.get(key)
+                if not isinstance(raw, dict):
+                    return None
+                learned = raw.get("learned_rpm")
+                if not isinstance(learned, int) or window_ok < learned:
+                    return learned if isinstance(learned, int) else None
+                raw["learned_rpm"] = learned + 1
+                raw["provider"] = provider or raw.get("provider") or ""
+            self._state.mark_dirty()
+            return learned + 1
+
+    def record_rate_limit(
+        self,
+        model_id: str,
+        provider: str,
+        window_ok: int,
+        *,
+        body: str = "",
+        now: datetime | None = None,
+    ) -> int | None:
+        """Per-minute 429: cap learned RPM at the successes seen in the last 60s."""
+        key = (model_id or "").strip()
+        text = (body or "").lower()
+        if not key or window_ok < 1 or any(h in text for h in _TOKEN_LIMIT_HINTS):
+            return None
+        now = now or datetime.now(timezone.utc)
+        with _LOCK:
+            with self._state.lock:
+                row = _row(self._state.data, key, provider, now)
+                prev = row.get("learned_rpm")
+                learned = window_ok if not isinstance(prev, int) else min(prev, window_ok)
+                row["learned_rpm"] = max(1, learned)
+                row["rpm_learned_at"] = now.isoformat()
+            self._state.mark_dirty()
+            return row["learned_rpm"]
+
+    def learned_rpm(self, model_id: str) -> int | None:
+        key = (model_id or "").strip()
+        with self._state.lock:
+            raw = self._state.data.get(key)
+            val = raw.get("learned_rpm") if isinstance(raw, dict) else None
+        return val if isinstance(val, int) and val >= 1 else None
 
     def record_success(
         self,
@@ -162,6 +244,7 @@ class QuotaLearner:
                         "ok": int(row.get("ok") or 0),
                         "learned_rpd": row.get("learned_rpd"),
                         "rpd_remaining": row.get("rpd_remaining"),
+                        "learned_rpm": row.get("learned_rpm"),
                         "last_limit": row.get("last_limit"),
                     }
             return out

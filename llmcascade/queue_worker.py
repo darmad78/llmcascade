@@ -85,6 +85,7 @@ class RouterClient:
             if self.gemini_cascade is not None:
                 self.rate_limiter.gemini_cascade = self.gemini_cascade
             self.rate_limiter.cooldowns = self.cooldowns
+        self.rate_limiter.learned_rpm = self.quota_learn.learned_rpm
         self.stats: StatsStore | NullStatsStore = stats or NullStatsStore()
         self.selector = ModelSelector(
             self.registry,
@@ -132,8 +133,21 @@ class RouterClient:
         if self.gemini_cascade is not None:
             self.gemini_cascade.flush_state()
         self.cooldowns.pool.flush()
-        self.quota_learn.flush()
+        await self.quota_learn.aflush()
         self._started = False
+
+    async def attach_quota_store(self) -> str:
+        """Persist learned quotas in Mongo when stats are connected; else keep JSON."""
+        db = getattr(self.stats, "db", None)
+        if db is None:
+            return self.quota_learn.backend
+        from llmcascade.quota_learn import MONGO_COLLECTION
+
+        try:
+            await self.quota_learn.attach_mongo(db[MONGO_COLLECTION])
+        except Exception as exc:  # noqa: BLE001
+            events.record(f"quota learn mongo attach failed: {type(exc).__name__}", level="error", type="system")
+        return self.quota_learn.backend
 
     def reload_registry(self, *, allow_empty: bool = True) -> int:
         """Hot-reload models from YAML + current keys without stopping workers."""

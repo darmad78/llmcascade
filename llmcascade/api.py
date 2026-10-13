@@ -292,6 +292,7 @@ async def lifespan(app: FastAPI):
             detail="MONGODB_URI is empty — add it to .env and restart"
         )
     _client = RouterClient(models_path=str(models_path), stats=_stats, allow_empty=True)
+    quota_backend = await _client.attach_quota_store()
     await _client.start()
     events.record(
         "router started",
@@ -299,6 +300,7 @@ async def lifespan(app: FastAPI):
         type="lifecycle",
         models=len(_client.registry),
         stats_configured=_stats.configured,
+        quota_learn=quota_backend,
     )
     app.state.secret_key = secret
     yield
