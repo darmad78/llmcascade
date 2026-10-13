@@ -1,4 +1,4 @@
-"""Optional API-key auth for POST /v1/complete and HTTP MCP."""
+"""Optional API-key auth for POST /v1/complete, /v1/chat/completions, /v1/embed, and HTTP MCP."""
 
 from __future__ import annotations
 

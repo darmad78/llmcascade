@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmcascade Pro (waitlist)</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; line-height: 1.5; color: #0f172a; background: #f8fafc; }
+    body { max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.25rem; margin: 1rem 0; }
+    a.cta { display: inline-block; margin-top: 0.75rem; padding: 0.6rem 1rem; background: #0f172a; color: #fff; text-decoration: none; border-radius: 6px; }
+    a.cta:hover { background: #334155; }
+    .muted { color: #64748b; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>llmcascade Pro</h1>
+  <p class="muted">Validation offer — features ship only if demand warrants it. Core dispatcher stays Apache 2.0.</p>
+  <div class="card">
+    <p><strong>£9/month</strong> (planned)</p>
+    <ul>
+      <li>Shared budget store (multi-worker / HA-friendly routing)</li>
+      <li>Priority <code>models.yaml</code> catalog updates</li>
+      <li>Email support for production deploys</li>
+    </ul>
+    <p id="checkout-wrap"><a class="cta" id="checkout" href="/pro/checkout?utm_source=pro_page">Join waitlist / checkout</a></p>
+    <p class="muted">Or email <a href="mailto:support@conceptgame.co.uk?subject=llmcascade%20Pro%20waitlist">support@conceptgame.co.uk</a> with subject <code>llmcascade Pro waitlist</code>.</p>
+  </div>
+  <p><a href="/help">API help</a> · <a href="https://github.com/darmad78/llmcascade">GitHub</a></p>
+  <script>
+    (function () {
+      var el = document.getElementById("checkout");
+      var url = el && el.getAttribute("href");
+      if (url) fetch("/v1/events?limit=1").catch(function () {});
+    })();
+  </script>
+</body>
+</html>

@@ -15,7 +15,7 @@ Free-tier APIs die on **429s**, not on missing SDKs. You already have keys; you 
 
 Not an IDE proxy, not a hosted multi-tenant gateway, not a catalog of “billions of free tokens.”
 
-**Operators:** run it, paste keys, watch `/dashboard`. **Evaluators / commercial use:** [LICENSING-FAQ.md](LICENSING-FAQ.md) — Non-Commercial Use is free; selling a product on this code needs a written license (**support@conceptgame.co.uk**).
+**Operators:** run it, paste keys, watch `/dashboard`. **License:** [Apache 2.0](LICENSE) — commercial use allowed. Optional **[Pro waitlist](https://github.com/darmad78/llmcascade)** (`/pro` when self-hosted) for shared budget store + catalog priority (validation only).
 
 ## Capabilities and limitations
 
@@ -24,7 +24,7 @@ Not an IDE proxy, not a hosted multi-tenant gateway, not a catalog of “billion
 - Dispatch **chat** across eligible free-tier models using live **rpd / rpm / rps / tpm** budgets; retry once on **timeout/408**, then fail over (including 5xx).
 - Pin chat with `model`, optional `failover_models`, and required `include_free_cascade` when a pin is set.
 - **Embed** with a required `model` (no cascade across vector spaces).
-- Expose **HTTP** (`/v1/complete`, `/v1/embed`) and **MCP** (`POST /mcp` JSON-RPC): inference tools plus separate admin tools.
+- Expose **HTTP** (`/v1/complete`, **`/v1/chat/completions`** OpenAI-shaped, `/v1/embed`) and **MCP** (`POST /mcp` JSON-RPC): inference tools plus separate admin tools.
 - Admin UI for keys, models, dashboards, and stats (Mongo when `MONGODB_URI` is set).
 
 **Does not**
@@ -122,7 +122,17 @@ MCP clients (Cursor, Claude, etc.) POST JSON-RPC to `/mcp`:
 
 Use an inference key for `complete`/`embed`. Use a **different** admin key for provider/model tools.
 
-**Auth on `/v1/complete` and `/v1/embed`:**
+**OpenAI drop-in (non-streaming):**
+
+```bash
+curl -s http://127.0.0.1:12000/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"auto","messages":[{"role":"user","content":"Say hi in one sentence."}],"user":"app"}'
+```
+
+Omit `model` or set `"auto"` for cascade. Set `stream: true` is not supported here — use `POST /v1/complete` with `"stream": true` for SSE.
+
+**Auth on `/v1/complete`, `/v1/chat/completions`, and `/v1/embed`:**
 
 - **Apps:** `Authorization: Bearer <key>` or `X-API-Key: <key>` when production profile / `REQUIRE_AUTH=true`.
 - **Dashboard UI** (chat + Test embed): logged-in admin cookie **and** `X-CSRF-Token`. No API key in the browser.
@@ -131,6 +141,8 @@ Use an inference key for `complete`/`embed`. Use a **different** admin key for p
 | Method | Path | Notes |
 |--------|------|--------|
 | `POST` | `/v1/complete` | Same fields plus optional `"stream": true` for SSE (`event: meta`, `data` deltas, `event: done`). Failover only before the first chunk. |
+| `POST` | `/v1/chat/completions` | OpenAI chat body (`messages`, optional `model`/`auto`, `user` → `notes`). Non-streaming only. |
+| `GET` | `/pro` | Pro waitlist page (fake-door validation). `/pro/checkout` logs click → Stripe URL or mailto. |
 | `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"?, "output_dimensionality"? }` → `embedding`, `dimensions` |
 | `GET` | `/v1/status` | Budgets + Gemini snapshot (API key or admin session when `REQUIRE_AUTH`/production) |
 | `POST` | `/v1/admin/reload-registry` | Hot-reload YAML (open when auth off; else admin key / cookie+CSRF) |
@@ -152,7 +164,7 @@ Also: `/v1/status/gemini`, `/v1/metrics`, `/v1/stats?capability=chat\|embed`, `/
 | Google Gemini | `GOOGLE_API_KEY` — chat cascade + separate embed IDs, see [docs/gemini.md](docs/gemini.md) |
 | OpenRouter | `OPENROUTER_API_KEY` |
 | Together | `TOGETHER_API_KEY` |
-| Cerebras | `CEREBRAS_API_KEY` |
+| Cerebras | `CEREBRAS_API_KEY` (trial only — card required; not a permanent free tier) |
 | Mistral | `MISTRAL_API_KEY` |
 | SambaNova | `SAMBANOVA_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
@@ -220,7 +232,7 @@ asyncio.run(main())
 
 ## Issues
 
-Bug reports and patches for **Non-Commercial Use** are welcome via GitHub issues/PRs. There is no contributor program, CLA circus, or implied right to Commercial Use. Commercial licensing: **support@conceptgame.co.uk**.
+Bug reports and patches are welcome via GitHub issues/PRs under [Apache 2.0](LICENSE).
 
 ## Disclaimer
 
@@ -228,4 +240,8 @@ Not affiliated with listed providers. **BYOK** — you supply credentials and mu
 
 ## License
 
-**Source-available** (v1.1) — [LICENSE](LICENSE) (draft; not legal advice) and [LICENSING-FAQ.md](LICENSING-FAQ.md). Free for Non-Commercial Use. Commercial Use needs a written license: **support@conceptgame.co.uk**. Apache 2.0 from **10 August 2030**. England and Wales.
+**Apache License 2.0** — see [LICENSE](LICENSE) and [LICENSING-FAQ.md](LICENSING-FAQ.md).
+
+### Pro (validation)
+
+Planned **£9/month**: shared budget store (multi-worker), priority catalog updates, deploy support. [Waitlist](/pro) · checkout clicks are logged in `/v1/events` (`type=validation`). Set `LLMCASCADE_PRO_CHECKOUT_URL` for Stripe.

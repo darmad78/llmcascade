@@ -1,21 +1,21 @@
-# Licensing FAQ (plain English)
+# Licensing FAQ
 
-This is a short summary only. The full terms are in [LICENSE](LICENSE) (**llmcascade Source-Available License v1.1**). That file is a **draft**, not legal advice — have a lawyer review it before relying on the commercial-use, royalty, remedy, or governing-law terms.
+llmcascade is released under the **[Apache License 2.0](LICENSE)**.
 
 ## Can I use this for free?
 
-**Yes**, for **Non-Commercial Use**: personal projects, education, academic research, and internal organizational use where nothing built on llmcascade is sold, monetized, or offered to external customers / the public for payment.
+**Yes**, including commercial use, modification, and distribution, subject to the Apache 2.0 terms (preserve copyright and license notices, state changes, etc.).
 
 ## Can I sell a product built on this?
 
-**Not under this license alone.** That is **Commercial Use** and requires a separate written **Commercial License** (with royalty/fee terms) agreed with the Licensor **before** such use starts.
+**Yes.** Apache 2.0 allows commercial use. You do not need a separate license from the author.
+
+## What about hosted / managed offerings?
+
+You may self-host or offer llmcascade to others under Apache 2.0. This project is **not** a hosted multi-tenant product maintained by the author; you operate what you deploy.
+
+## Optional Pro (validation)
+
+During the 30-day validation period, a **Pro** tier may be advertised for future features (shared budget store, priority catalog updates). That is a separate paid offer when available — not a requirement to use the open-source software.
 
 Contact: **support@conceptgame.co.uk**
-
-## What if I just self-host it for my own company internally?
-
-**Usually free**, if it stays **Non-Commercial Use** (internal only; not sold or offered to customers for payment). If llmcascade powers a product/service you charge for — including a hosted/managed offering for others — you need a Commercial License.
-
-## When does it become fully open source?
-
-On the **Change Date (10 August 2030)**, Section 3 (Commercial Use restriction) terminates and the Licensed Work becomes available under the **Apache License, Version 2.0**.

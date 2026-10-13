@@ -62,6 +62,13 @@ from llmcascade.model_store import (
 from llmcascade.retire_watch import snapshot as retire_watch_snapshot
 from llmcascade.ui import filter_dashboard, filter_stats_snapshot, nav_html
 from llmcascade.health import probe_model
+from llmcascade.openai_http import (
+    ChatCompletionRequest,
+    chat_completion_params,
+    llm_response_to_openai,
+    messages_to_prompt,
+    resolve_model_pin,
+)
 from llmcascade.registry import ModelConfig, Limits
 
 try:
@@ -83,6 +90,7 @@ _CHANGE_PASSWORD_HTML = _STATIC / "change_password.html"
 _ADMIN_PROVIDERS_HTML = _STATIC / "admin_providers.html"
 _HELP_HTML = _STATIC / "help.html"
 _RETIRE_HTML = _STATIC / "retire_watch.html"
+_PRO_HTML = _STATIC / "pro.html"
 
 
 class CompleteRequest(BaseModel):
@@ -784,6 +792,29 @@ async def complete(request: Request, body: CompleteRequest):
     )
 
 
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request, body: ChatCompletionRequest):
+    """OpenAI-compatible chat (non-streaming). Omit model or use `auto` for cascade."""
+    await _authorize_inference(request)
+    try:
+        prompt = messages_to_prompt(body.messages)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    pin, failovers, cascade = resolve_model_pin(body)
+    notes = (body.notes or body.user or "").strip() or None
+    params = chat_completion_params(body)
+    result = await _submit_inference(
+        prompt,
+        "chat",
+        notes,
+        params,
+        model=pin,
+        failover_models=failovers,
+        include_free_cascade=cascade,
+    )
+    return llm_response_to_openai(body, result)
+
+
 @app.post("/v1/embed", response_model=LLMResponse)
 async def embed(request: Request, body: EmbedRequest) -> LLMResponse:
     await _authorize_inference(request)
@@ -918,6 +949,22 @@ async def login_page(request: Request) -> Response:
 @app.get("/help", response_class=HTMLResponse)
 async def help_page() -> HTMLResponse:
     return _html_file(_HELP_HTML, area="llm", active="help")
+
+
+@app.get("/pro", response_class=HTMLResponse)
+async def pro_page() -> HTMLResponse:
+    return FileResponse(_PRO_HTML, media_type="text/html")
+
+
+@app.get("/pro/checkout")
+async def pro_checkout_redirect(request: Request) -> RedirectResponse:
+    """Fake-door: log interest then redirect to Stripe or mailto."""
+    source = (request.query_params.get("utm_source") or "direct").strip()[:64]
+    events.record("pro checkout click", level="info", type="validation", source=source)
+    target = (os.environ.get("LLMCASCADE_PRO_CHECKOUT_URL") or "").strip()
+    if not target:
+        target = "mailto:support@conceptgame.co.uk?subject=llmcascade%20Pro%20waitlist"
+    return RedirectResponse(url=target, status_code=302)
 
 
 @app.get("/embed/help", response_class=HTMLResponse)

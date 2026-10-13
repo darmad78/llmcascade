@@ -145,6 +145,8 @@ class GeminiAdapter(BaseAdapter):
             "content": {"parts": [{"text": prompt}]},
         }
         extra = {k: v for k, v in params.items() if k not in ("content", "contents", "model_id")}
+        if "output_dimensionality" in extra:
+            extra["outputDimensionality"] = extra.pop("output_dimensionality")
         body.update(extra)
         url = self._url(model_id).replace(":generateContent", ":embedContent")
         client = await self._http()
