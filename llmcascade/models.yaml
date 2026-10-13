@@ -1,11 +1,12 @@
 models:
-  # Groq free: llama-3.3-70b-versatile — 30 RPM · 12K TPM · 1,000 RPD (org-level).
-  - name: llama-3.3-70b-versatile
+  # Groq free (llama-3.3-70b-versatile retired Oct 2026). Limits are per-org in the console.
+  - name: groq/gpt-oss-120b
     provider: groq
+    api_model: openai/gpt-oss-120b
     endpoint: https://api.groq.com/openai/v1/chat/completions
     auth_env_var: GROQ_API_KEY
-    free_tier_verified: true
-    free_tier_note: "Groq free · llama-3.3-70b · 1,000 RPD · 30 RPM · 12K TPM"
+    free_tier_verified: false
+    free_tier_note: "Groq free · gpt-oss-120b · org limits unverified (soft local RPD)"
     limits:
       rpd: 1000
       rpm: 30
@@ -38,20 +39,37 @@ models:
     priority: 20
 
   # OpenRouter free models — account-wide free quota: 20 RPM · 50 RPD (<$10 credits) / 1,000 RPD (≥$10).
-  - name: openrouter/free
+  # Pinned :free models first; the openrouter/free router is a last-resort fallback
+  # because it can route to safety classifiers ("User Safety: safe").
+  - name: nvidia/nemotron-3-super-120b-a12b:free
     provider: openrouter
     endpoint: https://openrouter.ai/api/v1/chat/completions
     auth_env_var: OPENROUTER_API_KEY
     free_tier_verified: true
-    free_tier_note: "OpenRouter :free · 50 RPD (1,000 if ≥$10 credits) · 20 RPM"
+    free_tier_note: "OpenRouter :free · shares account quota (50 RPD, 1,000 if ≥$10 credits) · 20 RPM"
     limits:
       rpd: 50
       rpm: 20
       rps: 1
       tpm: 100000
-      max_context: 128000
+      max_context: 262144
     capabilities: [chat]
     priority: 30
+
+  - name: nvidia/nemotron-3.5-lightning:free
+    provider: openrouter
+    endpoint: https://openrouter.ai/api/v1/chat/completions
+    auth_env_var: OPENROUTER_API_KEY
+    free_tier_verified: true
+    free_tier_note: "OpenRouter :free · shares account quota (50 RPD, 1,000 if ≥$10 credits) · 20 RPM"
+    limits:
+      rpd: 50
+      rpm: 20
+      rps: 1
+      tpm: 100000
+      max_context: 1000000
+    capabilities: [chat]
+    priority: 35
 
   - name: meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
     provider: together
@@ -176,7 +194,8 @@ models:
     priority: 110
 
   # NVIDIA NIM free: commonly ~40 RPM, no published RPD — RPD is a soft local gate.
-  - name: meta/llama-3.1-8b-instruct
+  # meta/llama-3.1-8b-instruct reached end of life 2026-08-26.
+  - name: nvidia/nemotron-3.5-lightning-30b-a3b
     provider: nvidia
     endpoint: https://integrate.api.nvidia.com/v1/chat/completions
     auth_env_var: NVIDIA_NIM_API_KEY
@@ -187,7 +206,7 @@ models:
       rpm: 40
       rps: 1
       tpm: 40000
-      max_context: 8192
+      max_context: 128000
     capabilities: [chat]
     priority: 120
 
@@ -238,19 +257,18 @@ models:
     capabilities: [chat]
     priority: 150
 
-  - name: hyperbolic/llama-3.1-8b-instruct
-    provider: hyperbolic
-    api_model: meta-llama/Meta-Llama-3.1-8B-Instruct
-    endpoint: https://api.hyperbolic.xyz/v1/chat/completions
-    auth_env_var: HYPERBOLIC_API_KEY
-    free_tier_verified: false
-    free_tier_note: "Hyperbolic free credits rotate — counters unverified"
+  - name: openrouter/free
+    provider: openrouter
+    endpoint: https://openrouter.ai/api/v1/chat/completions
+    auth_env_var: OPENROUTER_API_KEY
+    free_tier_verified: true
+    free_tier_note: "OpenRouter free router · shares account quota · may route to safety models"
     limits:
-      rpd: 200
-      rpm: 30
+      rpd: 50
+      rpm: 20
       rps: 1
-      tpm: 60000
-      max_context: 8192
+      tpm: 100000
+      max_context: 128000
     capabilities: [chat]
     priority: 160
 

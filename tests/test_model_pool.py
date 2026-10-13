@@ -13,6 +13,36 @@ def test_410_is_permanent():
     assert classify_failure(410, "Gone") == "permanent"
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "The model `x` does not exist or you do not have access to it.",
+        '{"code":"model_not_found"}',
+        "This inference endpoint has been decommissioned and is no longer available.",
+        "The model has reached its end of life on 2026-08-26",
+    ],
+)
+def test_404_with_gone_signal_is_permanent(body: str):
+    assert classify_failure(404, body) == "permanent"
+
+
+def test_bare_404_is_missing_not_permanent():
+    assert classify_failure(404, '{"error":{"message":"No endpoints found for openrouter/free"}}') == "missing"
+
+
+@pytest.mark.asyncio
+async def test_missing_cooldown_is_one_hour_then_health(tmp_path: Path):
+    pool = ModelPool(path=tmp_path / "p.json")
+    cool = ModelCooldownTracker(pool=pool)
+    now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+    kind = await cool.apply_from_error("or-free", status_code=404, body="No endpoints found", now=now)
+    assert kind == "missing"
+    assert pool.available_at("or-free") == now + timedelta(hours=1)
+    assert pool.due_for_health(now=now + timedelta(minutes=61)) == ["or-free"]
+    later = now + timedelta(minutes=61)
+    assert pool.apply_health("or-free", state="ok", http_status=200, now=later) == "promoted"
+
+
 def test_new_id_starts_available(tmp_path: Path):
     pool = ModelPool(path=tmp_path / "pools.json")
     now = datetime(2026, 9, 15, tzinfo=timezone.utc)

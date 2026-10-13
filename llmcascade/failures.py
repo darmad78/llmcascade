@@ -43,6 +43,8 @@ def classify_recorded_failure(status_code: int | None, body: str = "") -> Record
     kind = classify_failure(status_code, body)
     if kind in ("daily", "credit", "permanent", "auth"):
         return kind
+    if kind == "missing":
+        return "unknown"
     if kind == "rate":
         if status_code is None or "timeout" in text or "timed out" in text:
             return "timeout"

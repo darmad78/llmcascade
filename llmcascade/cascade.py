@@ -22,7 +22,7 @@ from llmcascade.exceptions import ProviderError
 from llmcascade.model_pool import ModelPool
 from llmcascade.registry import ModelConfig
 
-FailureKind = Literal["daily", "credit", "rate", "permanent", "auth", "transient"]
+FailureKind = Literal["daily", "credit", "rate", "permanent", "missing", "auth", "transient"]
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 DAILY_RESET_TZ: dict[str, ZoneInfo | timezone] = {"gemini": PACIFIC}
@@ -43,6 +43,19 @@ def _gemini_cooldown_state() -> JsonState:
 RATE_COOLDOWN = timedelta(seconds=60)
 CREDIT_COOLDOWN = timedelta(hours=24)
 PERMANENT_COOLDOWN = timedelta(days=365)
+# Bare 404s (e.g. OpenRouter "No endpoints found") are often temporary.
+MISSING_COOLDOWN = timedelta(hours=1)
+GONE_SIGNALS: tuple[str, ...] = (
+    "does not exist",
+    "is not found",
+    "model not found",
+    "model_not_found",
+    "decommissioned",
+    "end of life",
+    "end-of-life",
+    "no longer available",
+    "no longer supported",
+)
 AUTH_COOLDOWN = timedelta(seconds=30)
 WAIT_CHUNK_S = 15.0
 MIN_TEXT_LEN = 1
@@ -57,6 +70,11 @@ DEFAULT_GEMINI_CASCADE: tuple[str, ...] = (
 )
 
 SendFn = Callable[[str, str], Awaitable[LLMResponse]]  # (model_id, prompt) -> response
+
+
+def is_gone_message(body: str) -> bool:
+    text = (body or "").lower()
+    return any(sig in text for sig in GONE_SIGNALS)
 
 
 def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
@@ -85,13 +103,10 @@ def classify_failure(status_code: int | None, body: str = "") -> FailureKind:
         return "rate"
     if status_code is not None and status_code >= 500:
         return "transient"
-    if (
-        status_code in (404, 410)
-        or "not supported" in text
-        or "is not found" in text
-        or "does not exist" in text
-    ):
+    if status_code == 410 or "not supported" in text or is_gone_message(text):
         return "permanent"
+    if status_code == 404:
+        return "missing"
     if status_code == 401:
         return "auth"
     if status_code == 403:
@@ -196,6 +211,8 @@ def cooldown_until(
         return now + AUTH_COOLDOWN
     if kind == "permanent":
         return now + PERMANENT_COOLDOWN
+    if kind == "missing":
+        return now + MISSING_COOLDOWN
     # daily → Pacific midnight. Ignore short Retry-After (Google often sends 60s on quota 429).
     if learned is not None and learned - now >= timedelta(minutes=30):
         return learned
@@ -315,7 +332,7 @@ class GeminiCascadeManager:
             if until > now:
                 self._cooldowns[mid] = until
                 k = kinds.get(mid)
-                if k in ("daily", "credit", "rate", "permanent", "auth", "transient"):
+                if k in ("daily", "credit", "rate", "permanent", "missing", "auth", "transient"):
                     self._kinds[mid] = k  # type: ignore[assignment]
 
     def _persist_cooldowns(self) -> None:

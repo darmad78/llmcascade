@@ -1,8 +1,9 @@
 """Available vs unavailable model pools.
 
 Unavailable models are not dispatched. Rate/daily/credit/auth return only after
-the cooldown elapses *and* a health probe succeeds. Permanent (404/410) stays
-out; a replacement ID is a new name and starts available.
+the cooldown elapses *and* a health probe succeeds. Permanent (410, or a 404
+that says the model is gone) stays out; a replacement ID is a new name and
+starts available. A bare 404 is "missing" and is re-probed after an hour.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ RATE_RETRY = timedelta(seconds=60)
 AUTH_RETRY = timedelta(seconds=30)
 GONE_RETRY = timedelta(days=365)
 GONE_KINDS = frozenset({"permanent"})
-HEALTH_KINDS = frozenset({"rate", "daily", "credit", "auth"})
+HEALTH_KINDS = frozenset({"rate", "daily", "credit", "auth", "missing"})
 HealthAction = Literal["promoted", "held", "gone"]
 
 
@@ -188,7 +189,9 @@ class ModelPool:
             if until is not None and until > now:
                 return "held"
 
-            if http_status == 410 or "does not exist" in text or "is not found" in text:
+            from llmcascade.cascade import is_gone_message
+
+            if http_status == 410 or is_gone_message(text):
                 self._unavail[key] = {
                     "kind": "permanent",
                     "available_at": (now + GONE_RETRY).isoformat(),
