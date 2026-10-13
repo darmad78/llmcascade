@@ -31,6 +31,7 @@ def _models(n: int = 3) -> list[ModelConfig]:
 @pytest.mark.asyncio
 async def test_chaos_only_expected_exceptions(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.setenv("LLMCASCADE_REQUEST_DEADLINE_S", "5")
     rng = random.Random(42)
 
     async def handler(request: httpx.Request) -> httpx.Response:

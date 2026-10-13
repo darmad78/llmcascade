@@ -28,6 +28,7 @@ STRATEGIES: frozenset[str] = frozenset(
 Executor = Callable[[ModelConfig, str], Awaitable[LLMResponse]]
 
 RETRY_SLEEP_S = 0.25
+HEALTH_POLL_S = 1.0
 DISPATCH_WAIT_S = float(os.environ.get("LLMCASCADE_DISPATCH_WAIT_S", "120"))
 STICKY_MAX = 1024
 DEFAULT_DEADLINE_S = 90.0
@@ -149,9 +150,11 @@ class ModelSelector:
                 earliest = at
         if earliest is None:
             return False
-        remaining = (earliest - datetime.now(timezone.utc)).total_seconds()
-        if remaining <= 0:
-            return True
+        # Past-due cooldowns stay unavailable until a health probe promotes them;
+        # poll instead of returning immediately, which would busy-spin the loop.
+        remaining = max(
+            HEALTH_POLL_S, (earliest - datetime.now(timezone.utc)).total_seconds()
+        )
         await asyncio.sleep(min(WAIT_CHUNK_S, remaining, max(0.0, deadline - now_mono)))
         return True
 
