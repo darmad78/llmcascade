@@ -48,7 +48,9 @@ def test_classify_forbidden_403_is_auth():
 @pytest.mark.asyncio
 async def test_ingest_ignores_all_zero_remaining():
     lim = RateLimiter([_m("a")])
-    await lim.ingest_headers("a", {"x-ratelimit-remaining-requests": "0"}, provider="x")
+    await lim.ingest_headers(
+        "a", {"x-ratelimit-remaining-requests": "0"}, provider="x", from_error=True
+    )
     assert lim.live_rpd("a") is None
 
 

@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 from pydantic import BaseModel, Field
 
 from llmcascade.exceptions import ProviderError
 from llmcascade.registry import ModelConfig
+
+
+class StreamChunk(BaseModel):
+    delta: str = ""
+    model: str = ""
+    finish_reason: str | None = None
+    tokens_used: int = 0
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class LLMResponse(BaseModel):
@@ -43,6 +51,19 @@ class BaseAdapter(ABC):
             await self._client.aclose()
             self._client = None
 
+    def _json(self, resp: httpx.Response) -> Any:
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise ProviderError(
+                f"{self.model.provider} non-JSON response (HTTP {resp.status_code})",
+                status_code=resp.status_code,
+                retryable=False,
+                provider=self.model.provider,
+                model=self.model.name,
+                headers=dict(resp.headers),
+            ) from exc
+
     def _raise_http(self, resp: httpx.Response) -> None:
         code = resp.status_code
         retryable = code >= 500 or code == 408
@@ -58,6 +79,15 @@ class BaseAdapter(ABC):
     @abstractmethod
     async def send(self, prompt: str, **params: Any) -> LLMResponse:
         ...
+
+    async def stream(self, prompt: str, **params: Any) -> AsyncIterator[StreamChunk]:
+        raise ProviderError(
+            f"{self.model.provider} does not support streaming",
+            retryable=False,
+            provider=self.model.provider,
+            model=self.model.name,
+        )
+        yield StreamChunk()  # pragma: no cover — makes this an async generator
 
     async def embed(self, prompt: str, **params: Any) -> LLMResponse:
         raise ProviderError(

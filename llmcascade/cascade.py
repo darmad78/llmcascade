@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Iterable, Literal
 from zoneinfo import ZoneInfo
+
+from llmcascade.persist import JsonState
+from llmcascade.secrets import data_dir
 
 from llmcascade.adapters.base import LLMResponse
 from llmcascade.exceptions import ProviderError
@@ -21,6 +25,20 @@ from llmcascade.registry import ModelConfig
 FailureKind = Literal["daily", "credit", "rate", "permanent", "auth", "transient"]
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
+DAILY_RESET_TZ: dict[str, ZoneInfo | timezone] = {"gemini": PACIFIC}
+_GO_DUR = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
+_GO_UNITS = {"h": 3600.0, "m": 60.0, "s": 1.0, "ms": 0.001}
+
+
+def _go_duration_s(raw: str) -> float | None:
+    parts = _GO_DUR.findall(raw.strip())
+    if not parts:
+        return None
+    return sum(float(n) * _GO_UNITS[u] for n, u in parts)
+
+
+def _gemini_cooldown_state() -> JsonState:
+    return JsonState(data_dir() / "gemini_cooldowns.json")
 # Gemini free RPM/TPM is a rolling ~60s window; retry after that, not 10m.
 RATE_COOLDOWN = timedelta(seconds=60)
 CREDIT_COOLDOWN = timedelta(hours=24)
@@ -143,6 +161,14 @@ def parse_reset_at(
         if val > 1e9:  # epoch seconds
             return datetime.fromtimestamp(val, tz=timezone.utc)
         return now + timedelta(seconds=max(0.0, val))
+
+    for key in ("x-ratelimit-reset-requests", "x-ratelimit-reset-tokens"):
+        raw = lower.get(key)
+        if not raw:
+            continue
+        secs = _go_duration_s(str(raw))
+        if secs is not None:
+            return now + timedelta(seconds=max(0.0, secs))
     return None
 
 
@@ -151,6 +177,7 @@ def cooldown_until(
     *,
     now: datetime | None = None,
     headers: dict[str, str] | None = None,
+    provider: str = "",
 ) -> datetime | None:
     """Return UTC available_at, or None for transient (no cooldown)."""
     now = now or datetime.now(timezone.utc)
@@ -172,7 +199,8 @@ def cooldown_until(
     # daily → Pacific midnight. Ignore short Retry-After (Google often sends 60s on quota 429).
     if learned is not None and learned - now >= timedelta(minutes=30):
         return learned
-    local = now.astimezone(PACIFIC)
+    tz = DAILY_RESET_TZ.get(provider, timezone.utc)
+    local = now.astimezone(tz)
     next_midnight = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return next_midnight.astimezone(timezone.utc)
 
@@ -249,11 +277,54 @@ class GeminiCascadeManager:
         models: list[str] | None = None,
         *,
         preferred_env: str | None = "GEMINI_MODEL",
+        state: JsonState | None = None,
     ) -> None:
         self.models = resolve_cascade_order(models, preferred_env=preferred_env)
         self._cooldowns: dict[str, datetime] = {}
         self._kinds: dict[str, FailureKind] = {}
         self._lock = asyncio.Lock()
+        self._state = state or _gemini_cooldown_state()
+        self._on_limit: Callable[[str, FailureKind], None] | None = None
+        self._load_persisted_cooldowns()
+
+    def set_on_limit(self, cb: Callable[[str, FailureKind], None] | None) -> None:
+        self._on_limit = cb
+
+    def adopt_state(self, other: "GeminiCascadeManager") -> None:
+        keep = set(self.models)
+        self._cooldowns = {m: t for m, t in other._cooldowns.items() if m in keep}
+        self._kinds = {m: k for m, k in other._kinds.items() if m in keep}
+
+    def flush_state(self) -> None:
+        self._persist_cooldowns()
+
+    def _load_persisted_cooldowns(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self._state.lock:
+            raw = self._state.data.get("cooldowns") if isinstance(self._state.data.get("cooldowns"), dict) else {}
+            kinds = self._state.data.get("kinds") if isinstance(self._state.data.get("kinds"), dict) else {}
+        for mid, iso in raw.items():
+            if mid not in self.models:
+                continue
+            try:
+                until = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if until.tzinfo is None:
+                until = until.replace(tzinfo=timezone.utc)
+            if until > now:
+                self._cooldowns[mid] = until
+                k = kinds.get(mid)
+                if k in ("daily", "credit", "rate", "permanent", "auth", "transient"):
+                    self._kinds[mid] = k  # type: ignore[assignment]
+
+    def _persist_cooldowns(self) -> None:
+        with self._state.lock:
+            self._state.data["cooldowns"] = {
+                m: t.isoformat() for m, t in self._cooldowns.items()
+            }
+            self._state.data["kinds"] = dict(self._kinds)
+        self._state.mark_dirty()
 
     def bind_logical(self, logical_name: str) -> None:
         self.logical_name = logical_name
@@ -306,10 +377,9 @@ class GeminiCascadeManager:
         now: datetime | None = None,
         headers: dict[str, str] | None = None,
     ) -> None:
-        until = cooldown_until(kind, now=now, headers=headers)
+        until = cooldown_until(kind, now=now, headers=headers, provider="gemini")
         if until is None:
             return
-        # Per cascade member — avoid parking the whole family on one member's failure.
         targets = [model_id]
         async with self._lock:
             for mid in targets:
@@ -317,6 +387,9 @@ class GeminiCascadeManager:
                 if prev is None or until > prev:
                     self._cooldowns[mid] = until
                     self._kinds[mid] = kind
+            self._persist_cooldowns()
+        if self._on_limit is not None:
+            self._on_limit(model_id, kind)
 
     async def status(self) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -366,6 +439,7 @@ class GeminiCascadeManager:
         """Try cascade in order. Default: if all cooling, raise (outer fallthrough)."""
         while True:
             last_err: ProviderError | None = None
+            last_kind: FailureKind | None = None
             tried = 0
             for model_id in self.models:
                 if await self.is_cooling(model_id):
@@ -377,6 +451,7 @@ class GeminiCascadeManager:
                     last_err = exc
                     body = str(exc)
                     kind = classify_failure(exc.status_code, body)
+                    last_kind = kind
                     await self.apply_cooldown(
                         model_id, kind, body=body, headers=getattr(exc, "headers", None)
                     )
@@ -384,12 +459,13 @@ class GeminiCascadeManager:
 
             if tried == 0 and wait_for_gemini:
                 earliest = await self.earliest_available_at()
-                if earliest is not None:
-                    now = datetime.now(timezone.utc)
-                    remaining = (earliest - now).total_seconds()
-                    if remaining > 0:
-                        await asyncio.sleep(min(WAIT_CHUNK_S, remaining))
-                        continue
+                if earliest is None:
+                    continue
+                now = datetime.now(timezone.utc)
+                remaining = (earliest - now).total_seconds()
+                if remaining > 0:
+                    await asyncio.sleep(min(WAIT_CHUNK_S, remaining))
+                    continue
 
             msg = "gemini cascade exhausted"
             if last_err:
@@ -401,6 +477,68 @@ class GeminiCascadeManager:
                 provider="gemini",
                 model=self.logical_name,
                 headers=getattr(last_err, "headers", None) if last_err else None,
+                kind=last_kind,
+            )
+
+    async def run_stream(
+        self,
+        open_stream: Callable[[str, str], Any],
+        prompt: str,
+        *,
+        wait_for_gemini: bool = False,
+    ) -> tuple[str, Any, Any]:
+        """Return (model_id, first_chunk, async_iter) after priming first chunk."""
+
+        while True:
+            last_err: ProviderError | None = None
+            last_kind: FailureKind | None = None
+            tried = 0
+            for model_id in self.models:
+                if await self.is_cooling(model_id):
+                    continue
+                tried += 1
+                try:
+                    gen = open_stream(model_id, prompt)
+                    if asyncio.iscoroutine(gen):
+                        gen = await gen
+                    first = await gen.__anext__()
+                    return model_id, first, gen
+                except StopAsyncIteration:
+                    raise ProviderError(
+                        "gemini empty stream",
+                        retryable=True,
+                        provider="gemini",
+                        model=model_id,
+                    )
+                except ProviderError as exc:
+                    last_err = exc
+                    kind = classify_failure(exc.status_code, str(exc))
+                    last_kind = kind
+                    await self.apply_cooldown(
+                        model_id, kind, body=str(exc), headers=getattr(exc, "headers", None)
+                    )
+                    continue
+
+            if tried == 0 and wait_for_gemini:
+                earliest = await self.earliest_available_at()
+                if earliest is None:
+                    continue
+                now = datetime.now(timezone.utc)
+                remaining = (earliest - now).total_seconds()
+                if remaining > 0:
+                    await asyncio.sleep(min(WAIT_CHUNK_S, remaining))
+                    continue
+
+            msg = "gemini cascade exhausted"
+            if last_err:
+                msg = f"{msg}: {last_err.safe_message}"
+            raise ProviderError(
+                msg,
+                status_code=last_err.status_code if last_err else None,
+                retryable=False,
+                provider="gemini",
+                model=self.logical_name,
+                kind=last_kind,
             )
 
 
@@ -451,6 +589,7 @@ class ModelCooldownTracker:
         headers: dict[str, str] | None = None,
         now: datetime | None = None,
         failover_probe: bool = False,
+        provider: str = "",
     ) -> FailureKind | None:
         classified = classify_failure(status_code, body)
         pool_kind: FailureKind = classified
@@ -458,7 +597,7 @@ class ModelCooldownTracker:
             pool_kind = "daily"
         if failover_probe and classified == "daily":
             pool_kind = "rate"
-        until = cooldown_until(pool_kind, now=now, headers=headers)
+        until = cooldown_until(pool_kind, now=now, headers=headers, provider=provider)
         if until is None:
             return None
         self.pool.mark_unavailable(model_name, pool_kind, until)

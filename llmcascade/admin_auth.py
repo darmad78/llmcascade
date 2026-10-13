@@ -30,14 +30,32 @@ class SessionClaims:
 class LoginLockout:
     """Process-local brute-force protection for /login."""
 
+    _MAX_BUCKETS = 10_000
+    _PRUNE_AGE_S = 900.0
+
     def __init__(self) -> None:
         self._failures: dict[str, list[float]] = {}
         self._locked_until: dict[str, float] = {}
+
+    def _prune(self) -> None:
+        now = time.monotonic()
+        for key in list(self._failures.keys()):
+            recent = [t for t in self._failures.get(key, []) if now - t < self._PRUNE_AGE_S]
+            if recent:
+                self._failures[key] = recent
+            else:
+                self._failures.pop(key, None)
+        for key, until in list(self._locked_until.items()):
+            if until <= now:
+                self._locked_until.pop(key, None)
+        while len(self._failures) > self._MAX_BUCKETS:
+            self._failures.pop(next(iter(self._failures)))
 
     def _bucket(self, ip: str, username: str) -> str:
         return f"{ip}|{username.lower()}"
 
     def is_locked(self, ip: str, username: str) -> tuple[bool, float]:
+        self._prune()
         key = self._bucket(ip, username)
         until = self._locked_until.get(key, 0.0)
         now = time.monotonic()
@@ -46,6 +64,7 @@ class LoginLockout:
         return False, 0.0
 
     def record_failure(self, ip: str, username: str) -> float:
+        self._prune()
         key = self._bucket(ip, username)
         now = time.monotonic()
         recent = [t for t in self._failures.get(key, []) if now - t < 900]

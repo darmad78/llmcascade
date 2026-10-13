@@ -40,6 +40,7 @@ class RateLimiter:
     """Process-local rate limiter. Not safe across multiple uvicorn workers."""
 
     WINDOWS = {"rps": 1.0, "rpm": 60.0, "rpd": 86400.0, "tpm": 60.0}
+    LIVE_TTL_S = {"rpm": 60.0, "tpm": 60.0, "rpd": 3600.0}
 
     def __init__(
         self,
@@ -55,6 +56,7 @@ class RateLimiter:
         self.gemini_cascade = gemini_cascade
         self.cooldowns = cooldowns
         self._live: dict[str, dict[str, int]] = {}
+        self._live_at: dict[str, dict[str, float]] = {}
         self._live_limits: dict[str, dict[str, int]] = {}
         self._live_source: dict[str, str] = {}
         self._live_lock = asyncio.Lock()
@@ -74,13 +76,24 @@ class RateLimiter:
             self._locks[model_name] = asyncio.Lock()
         return self._locks[model_name]
 
-    def _live_exhausted(self, model_name: str, tokens_estimate: int = 0) -> bool:
+    def _live_view(self, model_name: str) -> dict[str, int]:
         live = self._live.get(model_name) or {}
-        if live.get("rpd", 1) <= 0:
+        stamps = self._live_at.get(model_name) or {}
+        now = time.monotonic()
+        out: dict[str, int] = {}
+        for k, v in live.items():
+            ttl = self.LIVE_TTL_S.get(k, 60.0)
+            if now - stamps.get(k, 0.0) < ttl:
+                out[k] = int(v)
+        return out
+
+    def _live_exhausted(self, model_name: str, tokens_estimate: int = 0) -> bool:
+        live = self._live_view(model_name)
+        if "rpd" in live and live["rpd"] <= 0:
             return True
-        if live.get("rpm", 1) <= 0:
+        if "rpm" in live and live["rpm"] <= 0:
             return True
-        if tokens_estimate and live.get("tpm") is not None and live["tpm"] < tokens_estimate:
+        if tokens_estimate and "tpm" in live and live["tpm"] < tokens_estimate:
             return True
         return False
 
@@ -92,12 +105,12 @@ class RateLimiter:
         provider: str | None = None,
         source: str = "headers",
         fanout: bool = True,
+        from_error: bool = False,
     ) -> None:
         if not parsed:
             return
         remaining = {k: v for k, v in parsed.items() if not k.endswith("_limit")}
-        # Failover 429/403 responses often report 0 remaining; don't poison live budgets.
-        if remaining and all(int(v) <= 0 for v in remaining.values()):
+        if from_error and remaining and all(int(v) <= 0 for v in remaining.values()):
             return
         caps = {}
         for key, val in parsed.items():
@@ -106,12 +119,17 @@ class RateLimiter:
         names = [model_name]
         if fanout and provider:
             names = [n for n, m in self._models.items() if m.provider == provider] or names
+        now = time.monotonic()
         async with self._live_lock:
             for name in names:
                 if remaining:
                     prev = dict(self._live.get(name) or {})
                     prev.update(remaining)
                     self._live[name] = prev
+                    stamps = dict(self._live_at.get(name) or {})
+                    for k in remaining:
+                        stamps[k] = now
+                    self._live_at[name] = stamps
                     self._live_source[name] = source
                 if caps:
                     prev_c = dict(self._live_limits.get(name) or {})
@@ -125,6 +143,7 @@ class RateLimiter:
         *,
         provider: str = "",
         fanout: bool = True,
+        from_error: bool = False,
     ) -> None:
         parsed = parse_quota_headers(headers, provider=provider)
         await self.ingest_quota(
@@ -133,13 +152,14 @@ class RateLimiter:
             provider=provider,
             source="headers",
             fanout=fanout,
+            from_error=from_error,
         )
 
     def quota_source(self, model_name: str) -> str:
         return self._live_source.get(model_name) or "local"
 
     def live_rpd(self, model_name: str) -> int | None:
-        live = self._live.get(model_name) or {}
+        live = self._live_view(model_name)
         if "rpd" not in live:
             return None
         return max(0, int(live["rpd"]))
@@ -167,16 +187,7 @@ class RateLimiter:
                 continue
             seen.add(model.provider)
             try:
-                if model.provider == "groq":
-                    resp = await client.get(
-                        "https://api.groq.com/openai/v1/models",
-                        headers={"Authorization": f"Bearer {key}"},
-                        timeout=8.0,
-                    )
-                    await self.ingest_headers(
-                        model.name, dict(resp.headers), provider="groq"
-                    )
-                elif model.provider == "openrouter":
+                if model.provider == "openrouter":
                     resp = await client.get(
                         "https://openrouter.ai/api/v1/key",
                         headers={"Authorization": f"Bearer {key}"},
@@ -191,7 +202,10 @@ class RateLimiter:
                             source="openrouter_key",
                         )
                     await self.ingest_headers(
-                        model.name, dict(resp.headers), provider="openrouter"
+                        model.name,
+                        dict(resp.headers),
+                        provider="openrouter",
+                        from_error=resp.status_code >= 400,
                     )
             except Exception:  # noqa: BLE001 — keep dashboard up
                 continue
@@ -273,13 +287,19 @@ class RateLimiter:
                 events.append((now, amount))
                 await self._store.set_events(key, events)
             live = self._live.get(model_name)
+            stamps = self._live_at.get(model_name) or {}
+            now_stamp = time.monotonic()
             if live:
                 if "rpd" in live:
                     live["rpd"] = max(0, live["rpd"] - 1)
+                    stamps["rpd"] = now_stamp
                 if "rpm" in live:
                     live["rpm"] = max(0, live["rpm"] - 1)
+                    stamps["rpm"] = now_stamp
                 if "tpm" in live:
                     live["tpm"] = max(0, live["tpm"] - max(0, tokens_used))
+                    stamps["tpm"] = now_stamp
+                self._live_at[model_name] = stamps
 
     async def record_usage(self, model_name: str, tokens_used: int) -> None:
         async with self._lock(model_name):
@@ -322,7 +342,7 @@ class RateLimiter:
                 "rpd": max(0, lim.rpd - used["rpd"]),
                 "tpm": max(0, lim.tpm - used["tpm"]),
             }
-            live = self._live.get(model_name) or {}
+            live = self._live_view(model_name)
             for metric in ("rpm", "rpd", "tpm"):
                 if metric in live:
                     out[metric] = live[metric]

@@ -41,7 +41,7 @@ class CohereAdapter(BaseAdapter):
             ) from exc
         if resp.status_code >= 400:
             self._raise_http(resp)
-        data = resp.json()
+        data = self._json(resp)
         text = self._extract_text(data)
         if text is None:
             raise ProviderError(
@@ -116,7 +116,7 @@ class CohereAdapter(BaseAdapter):
             ) from exc
         if resp.status_code >= 400:
             self._raise_http(resp)
-        data = resp.json()
+        data = self._json(resp)
         vec = self._extract_embedding(data)
         if vec is None:
             raise ProviderError(

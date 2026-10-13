@@ -130,9 +130,9 @@ Use an inference key for `complete`/`embed`. Use a **different** admin key for p
 
 | Method | Path | Notes |
 |--------|------|--------|
-| `POST` | `/v1/complete` | `{ "prompt", "capability"?, "params"?, "notes"?, "model"?, "failover_models"?, "include_free_cascade"? }` → `text`, `model`, … |
+| `POST` | `/v1/complete` | Same fields plus optional `"stream": true` for SSE (`event: meta`, `data` deltas, `event: done`). Failover only before the first chunk. |
 | `POST` | `/v1/embed` | `{ "prompt", "model", "params"?, "notes"?, "output_dimensionality"? }` → `embedding`, `dimensions` |
-| `GET` | `/v1/status` | Budgets + Gemini snapshot |
+| `GET` | `/v1/status` | Budgets + Gemini snapshot (API key or admin session when `REQUIRE_AUTH`/production) |
 | `POST` | `/v1/admin/reload-registry` | Hot-reload YAML (open when auth off; else admin key / cookie+CSRF) |
 | `GET` | `/v1/health` | Provider reachability |
 | `POST` | `/mcp` | Streamable HTTP MCP (JSON-RPC). Inference + admin tools. |

@@ -15,6 +15,7 @@ class ProviderError(Exception):
         provider: str | None = None,
         model: str | None = None,
         headers: dict[str, str] | None = None,
+        kind: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -22,6 +23,7 @@ class ProviderError(Exception):
         self.provider = provider
         self.model = model
         self.headers = {k.lower(): v for k, v in (headers or {}).items()}
+        self.kind = kind
 
     @property
     def safe_message(self) -> str:

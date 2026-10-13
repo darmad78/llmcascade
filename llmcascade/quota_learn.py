@@ -5,21 +5,27 @@ YAML rpd/rpm are guesses. This store is the observed cap for each model ID.
 
 from __future__ import annotations
 
-import json
 import threading
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from pathlib import Path
+
+from llmcascade.persist import JsonState
 from llmcascade.secrets import data_dir
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 _LOCK = threading.Lock()
+_PRUNE_DAYS = 30
 
 
 def _path() -> Path:
     return data_dir() / "quota_learned.json"
+
+
+def _path_state() -> JsonState:
+    return JsonState(_path())
 
 
 def _day_key(provider: str, now: datetime | None = None) -> str:
@@ -31,24 +37,16 @@ def _day_key(provider: str, now: datetime | None = None) -> str:
     return now.astimezone(timezone.utc).date().isoformat()
 
 
-def _load() -> dict[str, Any]:
-    path = _path()
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _save(data: dict[str, Any]) -> None:
-    path = _path()
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+def _prune_old(data: dict[str, Any], now: datetime) -> None:
+    cutoff = (now - timedelta(days=_PRUNE_DAYS)).date().isoformat()
+    for key in list(data.keys()):
+        raw = data.get(key)
+        if not isinstance(raw, dict):
+            data.pop(key, None)
+            continue
+        day = str(raw.get("day") or "")
+        if day and day < cutoff:
+            data.pop(key, None)
 
 
 def _row(data: dict[str, Any], key: str, provider: str, now: datetime) -> dict[str, Any]:
@@ -70,6 +68,15 @@ def _row(data: dict[str, Any], key: str, provider: str, now: datetime) -> dict[s
 class QuotaLearner:
     """Process + disk map of observed RPD per provider model id."""
 
+    def __init__(self, state: JsonState | None = None) -> None:
+        self._state = state or _path_state()
+        with _LOCK:
+            with self._state.lock:
+                _prune_old(self._state.data, datetime.now(timezone.utc))
+
+    def flush(self) -> None:
+        self._state.flush()
+
     def record_success(
         self,
         model_id: str,
@@ -82,13 +89,14 @@ class QuotaLearner:
             return {}
         now = now or datetime.now(timezone.utc)
         with _LOCK:
-            data = _load()
-            row = _row(data, key, provider, now)
-            row["ok"] = int(row.get("ok") or 0) + 1
-            learned = row.get("learned_rpd")
-            if isinstance(learned, int) and learned >= 0:
-                row["rpd_remaining"] = max(0, learned - row["ok"])
-            _save(data)
+            with self._state.lock:
+                data = self._state.data
+                row = _row(data, key, provider, now)
+                row["ok"] = int(row.get("ok") or 0) + 1
+                learned = row.get("learned_rpd")
+                if isinstance(learned, int) and learned >= 0:
+                    row["rpd_remaining"] = max(0, learned - row["ok"])
+            self._state.mark_dirty()
             return dict(row)
 
     def record_limit(
@@ -99,24 +107,22 @@ class QuotaLearner:
         *,
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Call when the provider refuses (daily/credit 429). Cap = successes today."""
         key = (model_id or "").strip()
         if not key:
             return {}
         now = now or datetime.now(timezone.utc)
         with _LOCK:
-            data = _load()
-            row = _row(data, key, provider, now)
-            ok = int(row.get("ok") or 0)
-            if kind in ("daily", "credit"):
-                # Do not learn cap=0 from a failed attempt with no successes — that
-                # poisoned the dashboard after a single failover error.
-                if ok > 0:
-                    row["learned_rpd"] = max(int(row.get("learned_rpd") or 0), ok)
-                row["rpd_remaining"] = 0
-                row["learned_kind"] = kind
-            row["last_limit"] = kind
-            _save(data)
+            with self._state.lock:
+                data = self._state.data
+                row = _row(data, key, provider, now)
+                ok = int(row.get("ok") or 0)
+                if kind in ("daily", "credit"):
+                    if ok > 0:
+                        row["learned_rpd"] = max(int(row.get("learned_rpd") or 0), ok)
+                    row["rpd_remaining"] = 0
+                    row["learned_kind"] = kind
+                row["last_limit"] = kind
+            self._state.mark_dirty()
             return dict(row)
 
     def remaining_rpd(
@@ -125,38 +131,37 @@ class QuotaLearner:
         *,
         now: datetime | None = None,
     ) -> int | None:
-        """Observed remaining daily calls, or None if this ID has no learned cap."""
         key = (model_id or "").strip()
         if not key:
             return None
         now = now or datetime.now(timezone.utc)
         with _LOCK:
-            data = _load()
-            raw = data.get(key)
-            if not isinstance(raw, dict) or raw.get("learned_rpd") is None:
-                return None
-            row = _row(data, key, str(raw.get("provider") or ""), now)
-            rem = row.get("rpd_remaining")
-            if rem is None:
-                return None
-            return max(0, int(rem))
+            with self._state.lock:
+                data = self._state.data
+                raw = data.get(key)
+                if not isinstance(raw, dict) or raw.get("learned_rpd") is None:
+                    return None
+                row = _row(data, key, str(raw.get("provider") or ""), now)
+                rem = row.get("rpd_remaining")
+            return None if rem is None else max(0, int(rem))
 
     def snapshot(self, now: datetime | None = None) -> dict[str, dict[str, Any]]:
         now = now or datetime.now(timezone.utc)
         with _LOCK:
-            data = _load()
-            out: dict[str, dict[str, Any]] = {}
-            for key, raw in data.items():
-                if not isinstance(raw, dict):
-                    continue
-                provider = str(raw.get("provider") or "")
-                row = _row(data, key, provider, now)
-                out[key] = {
-                    "provider": provider,
-                    "day": row.get("day"),
-                    "ok": int(row.get("ok") or 0),
-                    "learned_rpd": row.get("learned_rpd"),
-                    "rpd_remaining": row.get("rpd_remaining"),
-                    "last_limit": row.get("last_limit"),
-                }
+            with self._state.lock:
+                data = self._state.data
+                out: dict[str, dict[str, Any]] = {}
+                for key, raw in list(data.items()):
+                    if not isinstance(raw, dict):
+                        continue
+                    provider = str(raw.get("provider") or "")
+                    row = _row(data, key, provider, now)
+                    out[key] = {
+                        "provider": provider,
+                        "day": row.get("day"),
+                        "ok": int(row.get("ok") or 0),
+                        "learned_rpd": row.get("learned_rpd"),
+                        "rpd_remaining": row.get("rpd_remaining"),
+                        "last_limit": row.get("last_limit"),
+                    }
             return out

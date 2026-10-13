@@ -7,6 +7,7 @@ Admin tools require LLMCASCADE_ADMIN_API_KEYS (or hashes), never cookies.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import HTTPException, Request
@@ -23,6 +24,8 @@ from llmcascade.api_auth import (
 from llmcascade.exceptions import AllModelsExhaustedError, safe_error_message
 
 PROTOCOL_VERSION = "2025-03-26"
+MAX_BATCH = 20
+RATE_TOOLS = frozenset({"complete", "embed"})
 SUPPORTED_PROTOCOL_VERSIONS = frozenset(
     {"2024-11-05", "2025-03-26", "2025-06-18"}
 )
@@ -231,6 +234,7 @@ async def dispatch_tool(name: str, arguments: JsonDict) -> Any:
 
     args = arguments or {}
     if name == "complete":
+        args = {**args, "stream": False}
         body = api.CompleteRequest.model_validate(args)
         return (
             await api._submit_inference(
@@ -392,11 +396,36 @@ async def _maybe_rate_limit(api_key: str | None) -> JSONResponse | None:
     return None
 
 
+def _is_rate_tool_call(message: dict[str, Any]) -> bool:
+    if message.get("method") != "tools/call":
+        return False
+    params = message.get("params") if isinstance(message.get("params"), dict) else {}
+    return str(params.get("name") or "") in RATE_TOOLS
+
+
+def _origin_allowed(request: Request) -> bool:
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return True
+    allowed = (os.environ.get("LLMCASCADE_ALLOWED_ORIGINS") or "").strip()
+    if allowed:
+        return origin in {o.strip() for o in allowed.split(",") if o.strip()}
+    host = request.headers.get("host") or ""
+    if host and origin.endswith(f"//{host}"):
+        return True
+    return False
+
+
 async def mcp_endpoint(request: Request) -> Response:
     if request.method == "DELETE":
         return Response(status_code=204)
     if request.method != "POST":
         return JSONResponse({"detail": "MCP is POST JSON-RPC at /mcp"}, status_code=405)
+
+    if not (request.headers.get("content-type") or "").lower().startswith("application/json"):
+        return JSONResponse({"detail": "Content-Type must be application/json"}, status_code=415)
+    if not _origin_allowed(request):
+        return JSONResponse({"detail": "origin not allowed"}, status_code=403)
 
     api_key = extract_api_key(
         request.headers.get("authorization"),
@@ -411,23 +440,27 @@ async def mcp_endpoint(request: Request) -> Response:
     except Exception:  # noqa: BLE001
         return JSONResponse({"detail": "invalid JSON"}, status_code=400)
 
-    rate_tools = False
-    if isinstance(payload, dict) and payload.get("method") == "tools/call":
-        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
-        rate_tools = str(params.get("name") or "") in {"complete", "embed"}
-    if rate_tools and require_auth_enabled() and api_key:
-        limited = await _maybe_rate_limit(api_key)
-        if limited is not None:
-            return limited
+    items = payload if isinstance(payload, list) else [payload]
+    if len(items) > MAX_BATCH:
+        return JSONResponse({"detail": f"batch too large (max {MAX_BATCH})"}, status_code=413)
+
+    n_rate = sum(1 for m in items if isinstance(m, dict) and _is_rate_tool_call(m))
+    if n_rate and require_auth_enabled() and api_key:
+        for _ in range(n_rate):
+            limited = await _maybe_rate_limit(api_key)
+            if limited is not None:
+                return limited
 
     if isinstance(payload, list):
         out = []
-        for item in payload:
+        for item in items:
             if not isinstance(item, dict):
                 continue
             msg = await handle_rpc(item, principal=principal)
             if msg is not None:
                 out.append(msg)
+        if not out:
+            return Response(status_code=202)
         return JSONResponse(out)
 
     if not isinstance(payload, dict):

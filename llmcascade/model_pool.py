@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
+from llmcascade.persist import JsonState
 from llmcascade.secrets import data_dir
 
 RATE_RETRY = timedelta(seconds=60)
@@ -52,18 +53,16 @@ class ModelPool:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or _path()
         self._lock = threading.Lock()
+        self._state = JsonState(self._path)
         self._unavail: dict[str, dict[str, Any]] = {}
         self._load()
 
+    def flush(self) -> None:
+        self._state.flush()
+
     def _load(self) -> None:
-        if not self._path.is_file():
-            self._unavail = {}
-            return
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            self._unavail = {}
-            return
+        with self._state.lock:
+            data = self._state.data
         raw = data.get("unavailable") if isinstance(data, dict) else None
         out: dict[str, dict[str, Any]] = {}
         if isinstance(raw, dict):
@@ -73,13 +72,9 @@ class ModelPool:
         self._unavail = out
 
     def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"unavailable": self._unavail}
-        self._path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        try:
-            self._path.chmod(0o600)
-        except OSError:
-            pass
+        with self._state.lock:
+            self._state.data["unavailable"] = self._unavail
+        self._state.mark_dirty()
 
     def sync_registry(self, names: Iterable[str]) -> None:
         keep = {n for n in names if n}
@@ -103,10 +98,10 @@ class ModelPool:
         until = _now(until)
         with self._lock:
             prev = self._unavail.get(key) or {}
-            prev_until = _parse_dt(prev.get("available_at"))
-            if prev_until is not None and prev_until > until and prev.get("kind") == "permanent":
-                return
             if prev.get("kind") == "permanent" and kind != "permanent":
+                return
+            prev_until = _parse_dt(prev.get("available_at"))
+            if prev_until is not None and prev_until >= until:
                 return
             self._unavail[key] = {
                 "kind": kind,

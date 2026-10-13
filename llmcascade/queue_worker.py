@@ -7,7 +7,8 @@ from typing import Any
 import httpx
 
 from llmcascade.adapters import get_adapter
-from llmcascade.adapters.base import LLMResponse
+from llmcascade.adapters.base import LLMResponse, StreamChunk
+from collections.abc import AsyncIterator
 from llmcascade.adapters.gemini_adapter import GeminiAdapter
 from llmcascade.cascade import GeminiCascadeManager, ModelCooldownTracker, cascade_manager_from_registry
 from llmcascade.event_log import events
@@ -37,11 +38,13 @@ class _Job:
     prompt: str
     capability: str
     params: dict[str, Any]
-    future: asyncio.Future[LLMResponse]
+    future: asyncio.Future[Any]
     notes: str | None = None
     pinned_model: str | None = None
     failover_models: list[str] | None = None
     include_free_cascade: bool | None = None
+    stream: bool = False
+    cancelled: asyncio.Event | None = None
 
 
 class RouterClient:
@@ -69,6 +72,10 @@ class RouterClient:
         self.gemini_cascade = gemini_cascade or cascade_manager_from_registry(self.registry)
         self.cooldowns = cooldowns or ModelCooldownTracker()
         self.quota_learn = QuotaLearner()
+        if self.gemini_cascade is not None:
+            self.gemini_cascade.set_on_limit(
+                lambda mid, kind: self.quota_learn.record_limit(mid, "gemini", kind)
+            )
         self.rate_limiter = rate_limiter or RateLimiter(
             self.registry,
             gemini_cascade=self.gemini_cascade,
@@ -122,13 +129,24 @@ class RouterClient:
             await asyncio.gather(self._health_task, return_exceptions=True)
             self._health_task = None
         await self._client.aclose()
+        if self.gemini_cascade is not None:
+            self.gemini_cascade.flush_state()
+        self.cooldowns.pool.flush()
+        self.quota_learn.flush()
         self._started = False
 
     def reload_registry(self, *, allow_empty: bool = True) -> int:
         """Hot-reload models from YAML + current keys without stopping workers."""
         new_registry = load_registry(self._models_path, allow_empty=allow_empty)
+        old_gemini = self.gemini_cascade
         self.registry = new_registry
         self.gemini_cascade = cascade_manager_from_registry(new_registry)
+        if old_gemini is not None and self.gemini_cascade is not None:
+            self.gemini_cascade.adopt_state(old_gemini)
+        if self.gemini_cascade is not None:
+            self.gemini_cascade.set_on_limit(
+                lambda mid, kind: self.quota_learn.record_limit(mid, "gemini", kind)
+            )
         self.rate_limiter.replace_models(new_registry)
         self.rate_limiter.gemini_cascade = self.gemini_cascade
         self.rate_limiter.cooldowns = self.cooldowns
@@ -162,6 +180,31 @@ class RouterClient:
             )
         return await adapter.send(prompt, **params)
 
+    async def _stream_execute(
+        self, model: ModelConfig, prompt: str, *, capability: str = "chat", **params: Any
+    ) -> AsyncIterator[StreamChunk]:
+        params = dict(params)
+        params.pop("wait_for_gemini", None)
+        params.pop("notes", None)
+        adapter = get_adapter(model, client=self._client)
+        if capability == "embed":
+            raise ValueError("embed does not support streaming")
+        if (
+            model.provider == "gemini"
+            and self.gemini_cascade is not None
+            and isinstance(adapter, GeminiAdapter)
+        ):
+            async def open_stream(model_id: str, p: str) -> AsyncIterator[StreamChunk]:
+                return adapter.stream(p, model_id=model_id, **params)
+
+            _mid, first, gen = await self.gemini_cascade.run_stream(open_stream, prompt)
+            yield first
+            async for chunk in gen:
+                yield chunk
+            return
+        async for chunk in adapter.stream(prompt, **params):
+            yield chunk
+
     async def _worker(self) -> None:
         while True:
             job = await self._queue.get()
@@ -177,17 +220,40 @@ class RouterClient:
                     )
 
                 try:
-                    result = await self.selector.dispatch_with_fallback(
-                        job.prompt,
-                        job.capability,
-                        executor,
-                        notes=job.notes,
-                        pinned_model=job.pinned_model,
-                        failover_models=job.failover_models,
-                        include_free_cascade=job.include_free_cascade,
-                    )
-                    if not job.future.done():
-                        job.future.set_result(result)
+                    if job.stream:
+                        async def stream_exec(m: ModelConfig, p: str) -> AsyncIterator[StreamChunk]:
+                            return self._stream_execute(
+                                m, p, capability=job.capability, **job.params
+                            )
+
+                        model, stream, skipped = await self.selector.dispatch_stream_with_fallback(
+                            job.prompt,
+                            job.capability,
+                            stream_exec,
+                            notes=job.notes,
+                            pinned_model=job.pinned_model,
+                            failover_models=job.failover_models,
+                            include_free_cascade=job.include_free_cascade,
+                        )
+                        meta = {
+                            "model": model.name,
+                            "provider": model.provider,
+                            "skipped_models": skipped,
+                        }
+                        if not job.future.done():
+                            job.future.set_result((meta, stream))
+                    else:
+                        result = await self.selector.dispatch_with_fallback(
+                            job.prompt,
+                            job.capability,
+                            executor,
+                            notes=job.notes,
+                            pinned_model=job.pinned_model,
+                            failover_models=job.failover_models,
+                            include_free_cascade=job.include_free_cascade,
+                        )
+                        if not job.future.done():
+                            job.future.set_result(result)
                 except Exception as exc:
                     if not job.future.done():
                         job.future.set_exception(exc)
@@ -289,6 +355,41 @@ class RouterClient:
             if notes:
                 detail["notes"] = notes
             events.record("request queue is full", level="error", type="queue", **detail)
+            raise QueueFullError("request queue is full") from exc
+        return await fut
+
+    async def submit_stream(
+        self,
+        prompt: str,
+        capability: str = "chat",
+        *,
+        notes: str | None = None,
+        model: str | None = None,
+        failover_models: list[str] | None = None,
+        include_free_cascade: bool | None = None,
+        **params: Any,
+    ) -> tuple[dict[str, Any], AsyncIterator[StreamChunk]]:
+        if not self._started:
+            await self.start()
+        pin = (model or "").strip() or None
+        failovers = [str(m).strip() for m in (failover_models or []) if str(m).strip()]
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = loop.create_future()
+        job = _Job(
+            prompt=prompt,
+            capability=capability,
+            params=params,
+            future=fut,
+            notes=notes,
+            pinned_model=pin,
+            failover_models=failovers,
+            include_free_cascade=include_free_cascade,
+            stream=True,
+            cancelled=asyncio.Event(),
+        )
+        try:
+            self._queue.put_nowait(job)
+        except asyncio.QueueFull as exc:
             raise QueueFullError("request queue is full") from exc
         return await fut
 

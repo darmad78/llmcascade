@@ -46,7 +46,7 @@ class CloudflareAdapter(BaseAdapter):
             ) from exc
         if resp.status_code >= 400:
             self._raise_http(resp)
-        data = resp.json()
+        data = self._json(resp)
         result = data.get("result") if isinstance(data, dict) else None
         text = ""
         if isinstance(result, dict):
@@ -105,7 +105,7 @@ class CloudflareAdapter(BaseAdapter):
             ) from exc
         if resp.status_code >= 400:
             self._raise_http(resp)
-        data = resp.json()
+        data = self._json(resp)
         vec = self._extract_embedding(data)
         if vec is None:
             raise ProviderError(

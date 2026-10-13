@@ -4,11 +4,12 @@ import asyncio
 import os
 import random
 import time
-from collections.abc import Awaitable, Callable
+from collections import OrderedDict
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from llmcascade.adapters.base import LLMResponse
+from llmcascade.adapters.base import LLMResponse, StreamChunk
 from llmcascade.exceptions import AllModelsExhaustedError, ProviderError, safe_error_message
 from llmcascade.cascade import WAIT_CHUNK_S, classify_failure
 from llmcascade.health import health_unavailable
@@ -28,6 +29,18 @@ Executor = Callable[[ModelConfig, str], Awaitable[LLMResponse]]
 
 RETRY_SLEEP_S = 0.25
 DISPATCH_WAIT_S = float(os.environ.get("LLMCASCADE_DISPATCH_WAIT_S", "120"))
+STICKY_MAX = 1024
+DEFAULT_DEADLINE_S = 90.0
+
+
+def request_deadline_s() -> float:
+    raw = (os.environ.get("LLMCASCADE_REQUEST_DEADLINE_S") or "").strip()
+    if not raw:
+        return DEFAULT_DEADLINE_S
+    try:
+        return max(5.0, float(raw))
+    except ValueError:
+        return DEFAULT_DEADLINE_S
 
 
 def strategy_from_env(default: Strategy = "headroom") -> Strategy:
@@ -74,7 +87,7 @@ class ModelSelector:
         self.quota_learn = quota_learn
         self._health_states = health_states
         self._rr_index = 0
-        self._last_good: dict[str, str] = {}
+        self._last_good: OrderedDict[str, str] = OrderedDict()
 
     def _health_state(self, model_name: str) -> str:
         if self._health_states is None:
@@ -171,6 +184,13 @@ class ModelSelector:
             return eligible
         return [m for m in eligible if m.name not in exclude]
 
+    def _remember(self, notes: str | None, name: str) -> None:
+        key = _notes_key(notes)
+        self._last_good[key] = name
+        self._last_good.move_to_end(key)
+        while len(self._last_good) > STICKY_MAX:
+            self._last_good.popitem(last=False)
+
     def _sticky(
         self,
         eligible: list[ModelConfig],
@@ -180,6 +200,31 @@ class ModelSelector:
         if not last:
             return None
         return next((m for m in eligible if m.name == last), None)
+
+    async def _bounded(
+        self,
+        coro: Awaitable[LLMResponse],
+        deadline: float,
+        model: ModelConfig,
+    ) -> LLMResponse:
+        loop = asyncio.get_running_loop()
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise ProviderError(
+                "request deadline exceeded",
+                retryable=False,
+                provider=model.provider,
+                model=model.name,
+            )
+        try:
+            return await asyncio.wait_for(coro, timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise ProviderError(
+                "request deadline exceeded",
+                retryable=False,
+                provider=model.provider,
+                model=model.name,
+            ) from exc
 
     async def pick(
         self,
@@ -251,15 +296,28 @@ class ModelSelector:
         model: ModelConfig,
         prompt: str,
         executor: Executor,
+        *,
+        deadline: float,
     ) -> LLMResponse:
         try:
-            return await executor(model, prompt)
+            return await self._bounded(executor(model, prompt), deadline, model)
         except ProviderError as exc:
-            # Retry only timeouts/408. 5xx must fail over — a 60s retry blocks the cascade.
-            if exc.retryable and exc.status_code in (None, 408):
+            if (
+                exc.retryable
+                and exc.status_code in (None, 408)
+                and await self.rate_limiter.try_reserve(model.name, 1)
+            ):
                 await asyncio.sleep(RETRY_SLEEP_S)
-                return await executor(model, prompt)
+                return await self._bounded(executor(model, prompt), deadline, model)
             raise
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ProviderError(
+                f"{model.provider} adapter error: {type(exc).__name__}",
+                provider=model.provider,
+                model=model.name,
+            ) from exc
 
     def _with_skipped(self, resp: LLMResponse, skipped: list[dict[str, str]]) -> LLMResponse:
         if not skipped:
@@ -288,6 +346,9 @@ class ModelSelector:
         pin = (pinned_model or "").strip() or None
         budget_blocked = False
         skipped_models: list[dict[str, str]] = []
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + request_deadline_s()
+        rps_waited = False
 
         preferred: list[str] = []
         if pin:
@@ -312,7 +373,7 @@ class ModelSelector:
         async def succeed(model: ModelConfig, resp: LLMResponse) -> LLMResponse:
             used = resp.tokens_used or tokens_est
             metrics.record_success(model.name, capability)
-            await self.stats.record(
+            self.stats.enqueue(
                 model=model.name,
                 provider=model.provider,
                 success=True,
@@ -352,21 +413,21 @@ class ModelSelector:
                 model.name,
                 getattr(resp, "headers", None) or None,
                 provider=model.provider,
-                fanout=model.provider in ("groq", "openrouter"),
+                fanout=model.provider == "openrouter",
             )
             if self.quota_learn is not None:
                 self.quota_learn.record_success(
                     (resp.model or model.name), model.provider
                 )
             if capability != "embed":
-                self._last_good[_notes_key(note)] = model.name
+                self._remember(note, model.name)
             return self._with_skipped(resp, skipped_models)
 
         async def fail(model: ModelConfig, exc: ProviderError) -> None:
             nonlocal last_err
             last_err = exc
             metrics.record_failure(model.name, capability)
-            await self.stats.record(
+            self.stats.enqueue(
                 model=model.name,
                 provider=model.provider,
                 success=False,
@@ -383,21 +444,21 @@ class ModelSelector:
                 exc=exc,
             )
             failover_probe = include_free and model.name not in preferred_names
-            if self.quota_learn is not None:
-                kind = classify_failure(exc.status_code, str(exc))
+            kind = exc.kind or classify_failure(exc.status_code, str(exc))
+            skip_learn = model.provider == "gemini" and bool(model.cascade)
+            if self.quota_learn is not None and not skip_learn:
                 if not (failover_probe and kind in ("credit", "daily")):
                     self.quota_learn.record_limit(
                         (exc.model or model.name), model.provider, kind
                     )
-            if self.cooldowns is not None and not (
-                model.provider == "gemini" and bool(model.cascade)
-            ):
+            if self.cooldowns is not None and not skip_learn:
                 kind = await self.cooldowns.apply_from_error(
                     model.name,
                     status_code=exc.status_code,
                     body=str(exc),
                     headers=getattr(exc, "headers", None),
                     failover_probe=failover_probe,
+                    provider=model.provider,
                 )
                 if kind is not None:
                     events.record(
@@ -435,7 +496,12 @@ class ModelSelector:
                 **note_detail,
             )
 
+        def _past_deadline() -> bool:
+            return loop.time() >= deadline
+
         for name in preferred:
+            if _past_deadline():
+                break
             model = next((m for m in self.registry if m.name == name), None)
             if model is None:
                 skipped_models.append({"model": name, "reason": "unknown"})
@@ -456,7 +522,9 @@ class ModelSelector:
                 continue
             tried.add(model.name)
             try:
-                return await succeed(model, await self._try_model(model, prompt, executor))
+                return await succeed(
+                    model, await self._try_model(model, prompt, executor, deadline=deadline)
+                )
             except ProviderError as exc:
                 skipped_models.append({"model": model.name, "reason": "error"})
                 await fail(model, exc)
@@ -464,16 +532,25 @@ class ModelSelector:
                     break
 
         wait_deadline = (
-            time.monotonic() + max(0.0, DISPATCH_WAIT_S)
+            min(
+                loop.time() + max(0.0, DISPATCH_WAIT_S),
+                deadline,
+            )
             if capability == "chat" and include_free and DISPATCH_WAIT_S > 0
-            else time.monotonic()
+            else deadline
         )
 
-        while include_free:
+        while include_free and not _past_deadline():
             model = await self.pick(
                 capability, tokens_est, notes=note, exclude=tried
             )
             if model is None:
+                if not rps_waited and loop.time() < deadline - 0.5:
+                    eligible_all = await self._eligible(capability, tokens_est)
+                    if any(m.name not in tried for m in eligible_all):
+                        rps_waited = True
+                        await asyncio.sleep(1.0)
+                        continue
                 if not await self._wait_for_free_model(
                     capability,
                     tokens_est,
@@ -488,7 +565,9 @@ class ModelSelector:
                 continue
             tried.add(model.name)
             try:
-                return await succeed(model, await self._try_model(model, prompt, executor))
+                return await succeed(
+                    model, await self._try_model(model, prompt, executor, deadline=deadline)
+                )
             except ProviderError as exc:
                 skipped_models.append({"model": model.name, "reason": "error"})
                 await fail(model, exc)
@@ -522,3 +601,132 @@ class ModelSelector:
             **note_detail,
         )
         raise AllModelsExhaustedError(msg, http_status=status, skipped_models=skipped_models)
+
+    async def dispatch_stream_with_fallback(
+        self,
+        prompt: str,
+        capability: str,
+        stream_executor: Callable[[ModelConfig, str], Awaitable[AsyncIterator[StreamChunk]]],
+        *,
+        notes: str | None = None,
+        pinned_model: str | None = None,
+        failover_models: list[str] | None = None,
+        include_free_cascade: bool | None = None,
+    ) -> tuple[ModelConfig, AsyncIterator[StreamChunk], list[dict[str, str]]]:
+        """Fail over until the first stream chunk is received."""
+        if capability == "embed":
+            raise ValueError("embed does not support streaming")
+        tokens_est = estimate_tokens(prompt)
+        tried: set[str] = set()
+        last_err: Exception | None = None
+        note = (notes or "").strip() or None
+        pin = (pinned_model or "").strip() or None
+        skipped_models: list[dict[str, str]] = []
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + request_deadline_s()
+        preferred: list[str] = []
+        if pin:
+            seen: set[str] = set()
+            for name in [pin, *(failover_models or [])]:
+                n = (name or "").strip()
+                if n and n not in seen:
+                    seen.add(n)
+                    preferred.append(n)
+        include_free = bool(include_free_cascade) if pin else True
+        preferred_names = set(preferred)
+
+        async def attempt(model: ModelConfig) -> tuple[ModelConfig, AsyncIterator[StreamChunk]]:
+            gen = await stream_executor(model, prompt)
+            try:
+                first = await gen.__anext__()
+            except StopAsyncIteration:
+                raise ProviderError(
+                    "empty stream",
+                    retryable=True,
+                    provider=model.provider,
+                    model=model.name,
+                )
+
+            async def merged() -> AsyncIterator[StreamChunk]:
+                yield first
+                async for chunk in gen:
+                    yield chunk
+
+            return model, merged()
+
+        async def on_success(model: ModelConfig, first: StreamChunk) -> None:
+            used = first.tokens_used or tokens_est
+            metrics.record_success(model.name, capability)
+            self.stats.enqueue(
+                model=model.name,
+                provider=model.provider,
+                success=True,
+                latency_ms=0,
+                tokens_used=used,
+                notes=note,
+                capability=capability,
+            )
+            await self.rate_limiter.record_success_usage(model.name, used)
+            await self.rate_limiter.ingest_headers(
+                model.name,
+                first.headers or None,
+                provider=model.provider,
+                fanout=model.provider == "openrouter",
+            )
+            if self.quota_learn is not None and not (model.provider == "gemini" and model.cascade):
+                self.quota_learn.record_success((first.model or model.name), model.provider)
+            if capability != "embed":
+                self._remember(note, model.name)
+
+        candidates: list[ModelConfig] = []
+        for name in preferred:
+            m = next((x for x in self.registry if x.name == name), None)
+            if m is not None:
+                candidates.append(m)
+        if include_free:
+            picked = await self.pick(capability, tokens_est, notes=note, exclude=tried)
+            while picked is not None and picked.name not in tried:
+                if picked not in candidates:
+                    candidates.append(picked)
+                tried.add(picked.name)
+                picked = await self.pick(capability, tokens_est, notes=note, exclude=tried)
+
+        for model in candidates:
+            if loop.time() >= deadline:
+                break
+            if model.name in tried and model.name not in preferred:
+                continue
+            if not await self.rate_limiter.try_reserve(model.name, tokens_est):
+                skipped_models.append({"model": model.name, "reason": "budget"})
+                continue
+            tried.add(model.name)
+            try:
+                m, stream = await attempt(model)
+                first = await stream.__anext__()
+                await on_success(m, first)
+
+                async def with_first() -> AsyncIterator[StreamChunk]:
+                    yield first
+                    async for chunk in stream:
+                        yield chunk
+
+                return m, with_first(), skipped_models
+            except ProviderError as exc:
+                last_err = exc
+                skipped_models.append({"model": model.name, "reason": "error"})
+                failover_probe = include_free and model.name not in preferred_names
+                kind = exc.kind or classify_failure(exc.status_code, str(exc))
+                if self.cooldowns is not None and not (model.provider == "gemini" and model.cascade):
+                    await self.cooldowns.apply_from_error(
+                        model.name,
+                        status_code=exc.status_code,
+                        body=str(exc),
+                        headers=getattr(exc, "headers", None),
+                        failover_probe=failover_probe,
+                        provider=model.provider,
+                    )
+
+        msg = f"no free-tier model succeeded for capability={capability!r}"
+        if last_err is not None:
+            msg = f"{msg}; last error: {safe_error_message(last_err)}"
+        raise AllModelsExhaustedError(msg, http_status=503, skipped_models=skipped_models)

@@ -46,7 +46,7 @@ from llmcascade.api_auth import (
 from llmcascade.mcp_http import mcp_endpoint
 from llmcascade.auth_store import change_password, ensure_admin
 from llmcascade.event_log import events
-from llmcascade.exceptions import AllModelsExhaustedError, safe_error_message
+from llmcascade.exceptions import AllModelsExhaustedError, QueueFullError, safe_error_message
 from llmcascade.metrics import log
 from llmcascade.provider_store import list_stored_providers, save_provider
 from llmcascade.queue_worker import RouterClient
@@ -93,6 +93,7 @@ class CompleteRequest(BaseModel):
     model: str | None = None
     failover_models: list[str] = Field(default_factory=list)
     include_free_cascade: bool | None = None
+    stream: bool = False
 
     @model_validator(mode="after")
     def _model_requires_cascade_flag(self) -> CompleteRequest:
@@ -180,11 +181,19 @@ def _is_https(request: Request) -> bool:
     return (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower() == "https"
 
 
+def _trusted_proxies() -> set[str]:
+    raw = (os.environ.get("LLMCASCADE_TRUSTED_PROXIES") or "").strip()
+    if not raw:
+        return set()
+    return {p.strip() for p in raw.split(",") if p.strip()}
+
+
 def _client_ip(request: Request) -> str:
+    peer = request.client.host if request.client else ""
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
+    if forwarded and peer in _trusted_proxies():
         return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return peer or "unknown"
 
 
 def _set_auth_cookies(response: Response, token: str, *, secure: bool) -> str:
@@ -371,6 +380,20 @@ def _dashboard_session_ok(request: Request) -> bool:
     return not claims.must_change_password
 
 
+async def _authorize_read(request: Request, *, admin: bool = False) -> None:
+    if not require_auth_enabled():
+        return
+    key = extract_api_key(
+        request.headers.get("authorization"),
+        request.headers.get("x-api-key"),
+    )
+    if validate_admin_api_key(key) or _dashboard_session_ok(request):
+        return
+    if not admin and validate_api_key(key):
+        return
+    raise HTTPException(status_code=401, detail="invalid or missing API key")
+
+
 async def _authorize_inference(request: Request) -> None:
     global _api_limiter
     if not require_auth_enabled():
@@ -456,6 +479,12 @@ async def _submit_inference(
     except ValueError as exc:
         _record_terminal_http_failure(capability, notes)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except QueueFullError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="request queue is full",
+            headers={"Retry-After": "1"},
+        ) from exc
     except AllModelsExhaustedError as exc:
         _record_terminal_http_failure(capability, notes)
         detail: Any = str(exc)
@@ -707,9 +736,43 @@ async def apply_model_test(name: str) -> dict[str, Any]:
     }
 
 
-@app.post("/v1/complete", response_model=LLMResponse)
-async def complete(request: Request, body: CompleteRequest) -> LLMResponse:
+@app.post("/v1/complete")
+async def complete(request: Request, body: CompleteRequest):
     await _authorize_inference(request)
+    stream = body.stream or bool(body.params.get("stream"))
+    if stream:
+        if body.capability == "embed":
+            raise HTTPException(status_code=400, detail="embed does not support streaming")
+        from fastapi.responses import StreamingResponse
+
+        client = _require_client()
+        first = await client.submit_stream(
+            body.prompt,
+            body.capability,
+            notes=body.notes,
+            model=body.model,
+            failover_models=body.failover_models,
+            include_free_cascade=body.include_free_cascade,
+            **body.params,
+        )
+
+        async def sse() -> Any:
+            import json as _json
+
+            meta, chunk_iter = first
+            yield f"event: meta\ndata: {_json.dumps(meta)}\n\n"
+            try:
+                async for chunk in chunk_iter:
+                    yield f"data: {_json.dumps({'delta': chunk.delta})}\n\n"
+                yield "event: done\ndata: {}\n\n"
+            except Exception as exc:
+                yield f"event: error\ndata: {_json.dumps({'detail': safe_error_message(exc), 'partial': True})}\n\n"
+
+        return StreamingResponse(
+            sse(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     return await _submit_inference(
         body.prompt,
         body.capability,
@@ -736,12 +799,14 @@ async def reload_registry_endpoint(request: Request) -> dict[str, Any]:
 
 
 @app.get("/v1/status")
-async def status() -> dict[str, Any]:
+async def status(request: Request) -> dict[str, Any]:
+    await _authorize_read(request)
     return await _require_client().status()
 
 
 @app.get("/v1/status/gemini")
-async def gemini_status() -> dict[str, Any]:
+async def gemini_status(request: Request) -> dict[str, Any]:
+    await _authorize_read(request)
     return await _require_client().gemini_status()
 
 
@@ -769,7 +834,8 @@ async def failures_endpoint(
 
 
 @app.get("/v1/health")
-async def health_endpoint(force: bool = False) -> dict[str, dict[str, Any]]:
+async def health_endpoint(request: Request, force: bool = False) -> dict[str, dict[str, Any]]:
+    await _authorize_read(request, admin=force)
     return await _require_client().health_snapshot(force=force)
 
 

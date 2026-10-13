@@ -4,8 +4,6 @@ import os
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
-from urllib.parse import urlencode
-
 import httpx
 
 from llmcascade.event_log import events
@@ -34,9 +32,7 @@ def _gemini_probe_url(model: ModelConfig, api_key: str) -> str:
     from llmcascade.cascade import gemini_endpoint
 
     model_id = model.cascade[0] if model.cascade else model.name
-    url = gemini_endpoint(model.endpoint, model_id)
-    qs = urlencode({"key": api_key})
-    return f"{url}?{qs}"
+    return gemini_endpoint(model.endpoint, model_id)
 
 
 def _auth_headers(model: ModelConfig, api_key: str) -> tuple[str, dict[str, str]]:
@@ -45,6 +41,7 @@ def _auth_headers(model: ModelConfig, api_key: str) -> tuple[str, dict[str, str]
     headers: dict[str, str] = {}
 
     if model.provider == "gemini":
+        headers["x-goog-api-key"] = api_key
         return _gemini_probe_url(model, api_key), headers
 
     if model.provider == "cloudflare":
