@@ -687,17 +687,17 @@ class ModelSelector:
             if m is not None:
                 candidates.append(m)
         if include_free:
-            picked = await self.pick(capability, tokens_est, notes=note, exclude=tried)
-            while picked is not None and picked.name not in tried:
-                if picked not in candidates:
-                    candidates.append(picked)
-                tried.add(picked.name)
-                picked = await self.pick(capability, tokens_est, notes=note, exclude=tried)
+            queued = {m.name for m in candidates}
+            picked = await self.pick(capability, tokens_est, notes=note, exclude=queued)
+            while picked is not None and picked.name not in queued:
+                candidates.append(picked)
+                queued.add(picked.name)
+                picked = await self.pick(capability, tokens_est, notes=note, exclude=queued)
 
         for model in candidates:
             if loop.time() >= deadline:
                 break
-            if model.name in tried and model.name not in preferred:
+            if model.name in tried:
                 continue
             if not await self.rate_limiter.try_reserve(model.name, tokens_est):
                 skipped_models.append({"model": model.name, "reason": "budget"})

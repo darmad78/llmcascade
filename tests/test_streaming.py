@@ -83,6 +83,38 @@ async def test_non_json_response_fails_over(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
+async def test_unpinned_stream_cascades_to_next_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.setenv("LLMCASCADE_DATA_DIR", str(tmp_path))
+    models = [_model("a"), _model("b")]
+    models[1] = models[1].model_copy(update={"priority": 20})
+    sse = b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n'
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        name = json.loads((request.content or b"").decode()).get("model")
+        seen.append(name)
+        if name == "a":
+            return httpx.Response(429, text="rate limit", headers={"retry-after": "30"})
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=httpx.ByteStream(sse)
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    router = RouterClient(registry=models, workers=1, max_queue=10, strategy="priority_first")
+    router._client = client
+    await router.start()
+    meta, stream = await router.submit_stream("hello")
+    chunks = [c.delta async for c in stream]
+    assert meta["model"] == "b"
+    assert chunks == ["hi"]
+    assert seen == ["a", "b"]
+    await router.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_sse_iter_skips_comments():
     payload = ": comment\ndata: {\"x\":1}\n\n"
     resp = httpx.Response(200, stream=httpx.ByteStream(payload.encode()))
